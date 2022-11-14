@@ -1,0 +1,26 @@
+[
+  {
+  "createIndexes": "bucket",
+  "indexes": [
+	{
+	  "key": {
+		"name": 1
+	  },
+	  "name": "bucket_unique_name_idx",
+	  "unique": true
+	}
+  ]
+},
+  {
+	"createIndexes": "file",
+	"indexes": [
+	  {
+		"key": {
+		  "uuid": 1
+		},
+		"name": "file_uuid_unique_idx",
+		"unique": true
+	  }
+	]
+  }
+]

@@ -1,0 +1,13 @@
+cache:
+  max_memory: 512
+  max_items: 128
+  ttl: 5
+  checkout_every: 60
+  threshold: 5
+  flush_every: 120
+
+cdn:
+  upload:
+    max_memory: 128
+  io_workers: 100
+

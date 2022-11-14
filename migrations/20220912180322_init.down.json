@@ -1,0 +1,10 @@
+[
+  {
+	"dropIndexes": "file",
+	"index": "file_uuid_unique_idx"
+  },
+  {
+	"dropIndexes": "bucket",
+	"index": "bucket_unique_name_idx"
+  }
+]

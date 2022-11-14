@@ -1,0 +1,76 @@
+trigger:
+- main
+ 
+resources:
+- repo: self
+ 
+variables:
+  tag: 'latest'
+ 
+stages:
+- stage: Build
+  displayName: Build image
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - task: Docker@2
+      displayName: Build an image
+      inputs:
+        command: buildAndPush
+        repository: 'cdn'
+        buildContext: '.'
+        containerRegistry: 'docker'
+        dockerfile: 'docker/Dockerfile'
+        tags: |
+          $(tag)
+
+- stage: Test
+  displayName: Test
+  jobs:
+  - job: BuildAndTest
+    displayName: Build and Test
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+    - script: 'sudo apt update && sudo apt install -y build-essential libvips libvips-dev'
+    - task: GoTool@0
+      inputs:
+        version: '1.18.6'
+    - task: Go@0
+      inputs:
+        command: 'build'
+        arguments: '-v -o "$(Build.ArtifactStagingDirectory)/animakuro-cdn" cmd/main.go'
+        workingDirectory: '$(System.DefaultWorkingDirectory)'
+    - task: Go@0
+      inputs:
+        command: 'test'
+        arguments: '-v ./...'
+        workingDirectory: '$(System.DefaultWorkingDirectory)'
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)'
+        artifactName: cdn
+
+- stage: Deploy
+  jobs:
+    - deployment: Deploy
+      displayName: Deploy
+      pool:
+        vmImage: 'ubuntu-latest'
+      environment: 'development'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - task: SSH@0
+              inputs:
+                sshEndpoint: 'development'
+                runOptions: 'inline'
+                inline: |
+                  cd ~/infra/animakuro
+                  docker-compose pull cdn 2>&1
+                  docker-compose up -d cdn 2>&1
+                readyTimeout: '20000'

@@ -1,0 +1,9 @@
+.git
+.env.example
+*.md
+.editorconfig
+
+/scripts
+/buckets
+
+Makefile

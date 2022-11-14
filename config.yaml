@@ -1,0 +1,13 @@
+cache:
+  max_memory: 512 # mb
+  max_items: 128 # maximum amount of files to be cached
+  ttl: 5 # minutes
+  checkout_every: 60 # interval to lookup for expired items
+  threshold: 5 # represents requests for certain file / 60 second
+  flush_every: 120 # (seconds) makes all hits for item to 0
+
+cdn:
+  upload:
+    max_memory: 128 # mb
+  io_workers: 10 # max number of heavy i/o operations, happening at one time e.g. (read file)
+
