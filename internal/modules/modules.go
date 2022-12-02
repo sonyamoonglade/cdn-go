@@ -2,6 +2,7 @@ package modules
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,13 +13,17 @@ import (
 	module_errors "animakuro/cdn/internal/modules/errors"
 	"animakuro/cdn/internal/modules/image"
 	"animakuro/cdn/internal/modules/types"
-	"animakuro/cdn/pkg/cdn_errors"
 )
 
 var (
 	modules = make(map[string]*types.Module)
 )
 
+var (
+	ErrInvalidURL = errors.New("invalid url")
+)
+
+// Init calls .Init function of all cdn modules
 func Init() {
 	img := image.Init()
 	modules[image.ModuleName] = img
@@ -107,8 +112,9 @@ func Parse(q url.Values, bucketModule string) (types.ModuleMap, error) {
 	return modmap, nil
 }
 
+// UseResolvers mutates initial buff according to moduleMap
 func UseResolvers(buff *bytes.Buffer, module string, mm types.ModuleMap) error {
-	//Prevents null check in the loop
+	// Prevents null check in the loop (compiler optimization)
 	_ = buff
 	for resolverName, resolverArg := range mm {
 		r := Resolver(module, resolverName)
@@ -134,11 +140,14 @@ func DoesModuleExist(m string) error {
 	return nil
 }
 
+// Raw takes moduleMap and uuid of file and concatenates it to one string
+// Internally does sort the moduleMap
 func Raw(modmap types.ModuleMap, uuid string) string {
 	var names []string
 	for k := range modmap {
 		names = append(names, k)
 	}
+
 	sort.Slice(names, func(i int, j int) bool {
 		return names[i] < names[j]
 	})
@@ -147,6 +156,7 @@ func Raw(modmap types.ModuleMap, uuid string) string {
 	for _, resolverName := range names {
 		rawv += fmt.Sprintf("%s=%s", resolverName, modmap[resolverName])
 	}
+
 	return rawv + uuid
 }
 
@@ -159,14 +169,14 @@ func extractUrlValues(qkey string, qval []string) (string, string, string, error
 	}
 
 	if len(ksplit) == 1 {
-		return "", "", "", cdn_errors.ErrInvalidUrl
+		return "", "", "", ErrInvalidURL
 	}
 
-	resolver := ksplit[1]
-	resolverv := qval[0]
-	querymod := ksplit[0]
+	resolverName := ksplit[1]
+	resolverValue := qval[0]
+	queryModule := ksplit[0]
 
-	return resolver, resolverv, querymod, nil
+	return resolverName, resolverValue, queryModule, nil
 }
 
 //clearQuery removes all unnecessary query keys for module parsing

@@ -1,11 +1,17 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
 	filecache "animakuro/cdn/pkg/cache/file"
+
 	"github.com/spf13/viper"
+)
+
+var (
+	ErrConfigNoExist = errors.New("config does not exist")
 )
 
 type MemoryConfig struct {
@@ -24,9 +30,22 @@ type AppConfig struct {
 	FileCacheConfig *filecache.Config
 }
 
-const BasePath = "config.yaml"
+func GetAppConfig(path string, debug bool) (*AppConfig, error) {
 
-func GetAppConfig(v *viper.Viper, debug bool) (*AppConfig, error) {
+	// Check if file does exist
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrConfigNoExist
+		}
+
+		return nil, err
+	}
+
+	viper.SetConfigFile(path)
+	err := viper.ReadInConfig()
+	if err != nil {
+		return nil, err
+	}
 
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
@@ -48,52 +67,47 @@ func GetAppConfig(v *viper.Viper, debug bool) (*AppConfig, error) {
 		return nil, fmt.Errorf("missing MONGO_DB_NAME env")
 	}
 
-	env := os.Getenv("ENV")
-	if env == "" {
-		return nil, fmt.Errorf("missing ENV env")
-	}
-
 	domain := os.Getenv("DOMAIN")
 	if domain == "" {
 		return nil, fmt.Errorf("missing DOMAIN env")
 	}
 
-	cacheMaxMem := v.GetInt64("cache.max_memory")
+	cacheMaxMem := viper.GetInt64("cache.max_memory")
 	if cacheMaxMem == 0 {
 		return nil, fmt.Errorf("missing cache.max_memory in config")
 	}
 
-	cacheMaxItems := v.GetInt("cache.max_items")
+	cacheMaxItems := viper.GetInt("cache.max_items")
 	if cacheMaxItems == 0 {
 		return nil, fmt.Errorf("missing cache.max_items in config")
 	}
 
-	cacheTtl := v.GetInt("cache.ttl")
+	cacheTtl := viper.GetInt("cache.ttl")
 	if cacheTtl == 0 {
 		return nil, fmt.Errorf("missing cache.ttl in config")
 	}
 
-	cacheCheckoutEvery := v.GetInt("cache.checkout_every")
+	cacheCheckoutEvery := viper.GetInt("cache.checkout_every")
 	if cacheCheckoutEvery == 0 {
 		return nil, fmt.Errorf("missing cache.checkout_every in config")
 	}
 
-	cacheThreshold := v.GetInt("cache.threshold")
+	cacheThreshold := viper.GetInt("cache.threshold")
 	if cacheThreshold == 0 {
 		return nil, fmt.Errorf("missing cache.threshold in config")
 	}
 
-	cacheFlushEvery := v.GetInt("cache.flush_every")
+	cacheFlushEvery := viper.GetInt("cache.flush_every")
 	if cacheFlushEvery == 0 {
 		return nil, fmt.Errorf("missing cache.flush_every in config")
 	}
 
-	uploadMaxMem := v.GetInt64("cdn.upload.max_memory")
+	uploadMaxMem := viper.GetInt64("cdn.upload.max_memory")
 	if uploadMaxMem == 0 {
 		return nil, fmt.Errorf("missing cdn.upload.max_memory in config")
 	}
 
-	maxWorkers := v.GetInt("cdn.io_workers")
+	maxWorkers := viper.GetInt("cdn.io_workers")
 	if maxWorkers == 0 {
 		return nil, fmt.Errorf("missing cdn.io_workers in config")
 	}
@@ -119,24 +133,4 @@ func GetAppConfig(v *viper.Viper, debug bool) (*AppConfig, error) {
 		},
 	}, nil
 
-}
-
-func OpenConfig(path string) (*viper.Viper, error) {
-	env := os.Getenv("ENV")
-	if env == "" {
-		return nil, fmt.Errorf("missing ENV env")
-	}
-
-	if env == "production" {
-		path = fmt.Sprintf("prod.%s", path)
-	}
-
-	viper.SetConfigFile(path)
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	return viper.GetViper(), nil
 }

@@ -12,6 +12,7 @@ import (
 	"animakuro/cdn/internal/cdn"
 	"animakuro/cdn/internal/cdn/dto"
 	mock_cdn "animakuro/cdn/internal/cdn/mocks"
+	"animakuro/cdn/internal/cdnpath"
 	"animakuro/cdn/internal/entities"
 	"animakuro/cdn/internal/formdata"
 	"animakuro/cdn/internal/fs"
@@ -37,9 +38,7 @@ func initDeps(ctrl *gomock.Controller) (*mock_cdn.MockRepository, *zap.SugaredLo
 
 	mockRepo := mock_cdn.NewMockRepository(ctrl)
 
-	logger, _ := zap.NewProduction()
-
-	fc := filecache.NewFileCache(logger.Sugar(), &filecache.Config{
+	fc := filecache.NewFileCache(zap.NewNop().Sugar(), &filecache.Config{
 		MaxCacheSize:   128,
 		MaxCacheItems:  5,
 		CacheTTL:       5,
@@ -62,8 +61,8 @@ func initDeps(ctrl *gomock.Controller) (*mock_cdn.MockRepository, *zap.SugaredLo
 
 	domain := "cdn.animakuro"
 
-	d := dealer.New(logger.Sugar(), 5)
-	return mockRepo, logger.Sugar(), bc, fc, domain, d
+	d := dealer.New(zap.NewNop().Sugar(), 5)
+	return mockRepo, zap.NewNop().Sugar(), bc, fc, domain, d
 }
 
 type MockFile struct {
@@ -110,7 +109,7 @@ func TestUploadManyOk(t *testing.T) {
 	d.Start(false)
 	ff := []*formdata.UploadFile{f}
 
-	//Create bucket for test
+	// Create bucket for test
 	err := fs.CreateBucket(testBucket)
 	require.NoError(t, err)
 
@@ -128,19 +127,27 @@ func TestUploadManyOk(t *testing.T) {
 
 	service := cdn.NewService(logger, repo, bc, fc, domain, d)
 
-	urls, err := service.UploadMany(ctx, testBucket, ff)
+	urls, ids, err := service.UploadMany(ctx, testBucket, ff)
 	require.NoError(t, err)
 	require.NotNil(t, urls)
 	require.True(t, strings.Contains(urls[0], domain))
 	require.True(t, strings.Contains(urls[0], f.UUID))
 	require.True(t, strings.Contains(urls[0], testBucket))
+	require.NotNil(t, ids)
+	require.True(t, ids[0] == f.UUID)
 
 	uplFile, err := f.Open()
 	require.NoError(t, err)
 
 	uplBits, err := io.ReadAll(uplFile)
 	require.NoError(t, err)
-	osFile, err := os.Open(path.Join(fs.BucketsPath(), testBucket, f.UUID, f.UploadName))
+
+	osFile, err := os.Open(cdnpath.ToExistingFile(&cdnpath.Existing{
+		BucketsPath: fs.BucketsPath(),
+		Bucket:      testBucket,
+		UUID:        f.UUID,
+		SHA1:        f.UploadName, // can use instead of real sha. See impl.
+	}))
 	require.NoError(t, err)
 
 	bits, err := io.ReadAll(osFile)

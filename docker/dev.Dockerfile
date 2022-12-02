@@ -12,4 +12,4 @@ RUN apt update -y && \
 
 COPY . .
 
-ENTRYPOINT CompileDaemon -polling -build="go build -o ./bin/cdn ./cmd/main.go" -command="./bin/cdn --debug=true --buckets-path=/data/buckets"
+ENTRYPOINT CompileDaemon -polling -build="go build -o ./bin/cdn ./cmd/main.go" -command="./bin/cdn --debug=true --buckets-path=/data/buckets --config-path=./config.yaml"

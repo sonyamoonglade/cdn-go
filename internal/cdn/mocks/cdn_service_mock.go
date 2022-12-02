@@ -223,12 +223,13 @@ func (mr *MockServiceMockRecorder) TryReadExisting(path interface{}) *gomock.Cal
 }
 
 // UploadMany mocks base method.
-func (m *MockService) UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, error) {
+func (m *MockService) UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, []string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UploadMany", ctx, bucket, files)
 	ret0, _ := ret[0].([]string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].([]string)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // UploadMany indicates an expected call of UploadMany.

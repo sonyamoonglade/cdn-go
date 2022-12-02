@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"animakuro/cdn/internal/cdn/dto"
+	cdnutil "animakuro/cdn/internal/cdn/util"
 	"animakuro/cdn/internal/entities"
 	"animakuro/cdn/internal/formdata"
 	"animakuro/cdn/internal/fs"
 	cache "animakuro/cdn/pkg/cache/bucket"
 	filecache "animakuro/cdn/pkg/cache/file"
-	"animakuro/cdn/pkg/cdn_errors"
-	"animakuro/cdn/pkg/helpers"
+
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/sonyamoonglade/dealer-go/v2"
 	"go.uber.org/zap"
@@ -25,8 +25,11 @@ const (
 )
 
 var (
-	saveTimeout = time.Second * 5
+	// todo: make configurable
+	saveTimeout = time.Second * 10
 )
+
+var ()
 
 type Service interface {
 	//DB logic
@@ -39,7 +42,7 @@ type Service interface {
 	InitBuckets(ctx context.Context) error
 
 	//Internal CDN logic
-	UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, error)
+	UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, []string, error)
 	ReadFile(isOrig bool, path string, hosts []string) ([]byte, error)
 	DeleteAll(path string) error
 	MustSave(buff []byte, path string)
@@ -52,7 +55,7 @@ type Service interface {
 type CdnService struct {
 	logger     *zap.SugaredLogger
 	repository Repository
-	bs         *cache.BucketCache
+	bc         *cache.BucketCache
 	fc         *filecache.FileCache
 	domain     string
 	dealer     *dealer.Dealer
@@ -67,10 +70,11 @@ func NewService(logger *zap.SugaredLogger,
 	return &CdnService{
 		logger:     logger,
 		repository: repo,
-		bs:         bucketCache,
-		fc:         fileCache,
-		domain:     domain,
-		dealer:     dealer,
+
+		bc:     bucketCache,
+		fc:     fileCache,
+		domain: domain,
+		dealer: dealer,
 	}
 }
 
@@ -81,12 +85,12 @@ func (s *CdnService) SetSaveTimeout(dur time.Duration) {
 func (s *CdnService) GetBucketDB(ctx context.Context, name string) (*entities.Bucket, error) {
 	bucket, err := s.repository.GetBucket(ctx, name)
 	if err != nil {
-		return nil, cdn_errors.WrapInternal(err, "CdnService.GetBucket")
+		return nil, cdnutil.WrapInternal(err, "CdnService.GetBucket")
 	}
 
 	//No bucket was found
 	if bucket == nil {
-		return nil, cdn_errors.ErrBucketNotFound
+		return nil, entities.ErrBucketNotFound
 	}
 
 	return bucket, nil
@@ -96,12 +100,12 @@ func (s *CdnService) GetFileDB(ctx context.Context, bucket string, name string) 
 
 	file, err := s.repository.GetFile(ctx, bucket, name)
 	if err != nil {
-		return nil, cdn_errors.WrapInternal(err, "CdnService.GetFile")
+		return nil, cdnutil.WrapInternal(err, "CdnService.GetFile")
 	}
 
 	//No file was found
 	if file == nil {
-		return nil, cdn_errors.ErrFileNotFound
+		return nil, entities.ErrFileNotFound
 	}
 
 	return file, nil
@@ -110,11 +114,11 @@ func (s *CdnService) GetFileDB(ctx context.Context, bucket string, name string) 
 func (s *CdnService) SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error {
 	ok, err := s.repository.SaveFile(ctx, dto)
 	if err != nil {
-		return cdn_errors.WrapInternal(err, "CdnService.SaveFileDB.s.repository.SaveFile")
+		return cdnutil.WrapInternal(err, "CdnService.SaveFileDB.s.repository.SaveFile")
 	}
-	//Duplicate
+	// Duplicate
 	if ok == false {
-		return cdn_errors.ErrFileAlreadyExists
+		return entities.ErrFileAlreadyExists
 	}
 
 	return nil
@@ -123,12 +127,12 @@ func (s *CdnService) SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error 
 func (s *CdnService) SaveBucketDB(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error) {
 	b, err := s.repository.SaveBucket(ctx, dto)
 	if err != nil {
-		return nil, cdn_errors.WrapInternal(err, "CdnService.SaveBucketDB")
+		return nil, cdnutil.WrapInternal(err, "CdnService.SaveBucketDB")
 	}
 
-	//duplicate
+	// Duplicate
 	if b == nil {
-		return nil, cdn_errors.ErrBucketAlreadyExists
+		return nil, entities.ErrBucketAlreadyExists
 	}
 
 	return b, nil
@@ -137,11 +141,11 @@ func (s *CdnService) SaveBucketDB(ctx context.Context, dto dto.CreateBucketDto) 
 func (s *CdnService) GetAllBucketsDB(ctx context.Context) ([]*entities.Bucket, error) {
 	buckets, err := s.repository.GetAllBuckets(ctx)
 	if err != nil {
-		return nil, cdn_errors.WrapInternal(err, "CdnService.GetAllBucketsDB.s.repository.GetAllBuckets")
+		return nil, cdnutil.WrapInternal(err, "CdnService.GetAllBucketsDB.s.repository.GetAllBuckets")
 	}
 	//No buckets are present
 	if buckets == nil {
-		return nil, cdn_errors.ErrBucketsAreNotDefined
+		return nil, entities.ErrBucketsNotDefined
 	}
 
 	return buckets, nil
@@ -150,27 +154,30 @@ func (s *CdnService) GetAllBucketsDB(ctx context.Context) ([]*entities.Bucket, e
 func (s *CdnService) DeleteFileDB(ctx context.Context, bucket string, uuid string) error {
 	ok, err := s.repository.DeleteFile(ctx, bucket, uuid)
 	if err != nil {
-		return cdn_errors.WrapInternal(err, "CdnService.DeleteFileDB.s.repository.DeleteFile")
+		return cdnutil.WrapInternal(err, "CdnService.DeleteFileDB.s.repository.DeleteFile")
 	}
 
 	if !ok {
-		return cdn_errors.ErrFileNotFound
+		return entities.ErrFileNotFound
 	}
 
 	return nil
 }
 
-func (s *CdnService) UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, error) {
+func (s *CdnService) UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, []string, error) {
+
 	var urls []string
+	var ids []string
+
 	for _, file := range files {
 		osfile, err := file.Open()
 		if err != nil {
-			return nil, cdn_errors.WrapInternal(err, "UploadFiles.file.Open")
+			return nil, nil, cdnutil.WrapInternal(err, "UploadFiles.file.Open")
 		}
 
 		buff, err := io.ReadAll(osfile)
 		if err != nil {
-			return nil, cdn_errors.WrapInternal(err, "UploadFiles.io.ReadAll")
+			return nil, nil, cdnutil.WrapInternal(err, "UploadFiles.io.ReadAll")
 		}
 
 		j := dealer.NewJob(func() *dealer.JobResult {
@@ -179,8 +186,9 @@ func (s *CdnService) UploadMany(ctx context.Context, bucket string, files []*for
 		s.dealer.AddJob(j)
 
 		res := j.WaitResult()
+		s.logger.Debugf("job result: %+v\n", res)
 		if err := res.Err; err != nil {
-			return nil, cdn_errors.WrapInternal(err, "CdnService.UploadFiles.fs.WriteFileToBucket")
+			return nil, nil, cdnutil.WrapInternal(err, "CdnService.UploadFiles.fs.WriteFileToBucket")
 		}
 
 		//todo: get host from env
@@ -193,21 +201,27 @@ func (s *CdnService) UploadMany(ctx context.Context, bucket string, files []*for
 			Extension:   "." + file.Extension,
 		}
 
+		s.logger.Debugf("dto: %+v\n", fdto)
+
 		err = s.SaveFileDB(ctx, fdto)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+
 		//todo: path
 		path := fmt.Sprintf("%s/%s/%s", s.domain, bucket, file.UUID)
+
+		s.logger.Debugf("path: %s\n", path)
 		urls = append(urls, path)
+		ids = append(ids, file.UUID)
 	}
 
-	return urls, nil
+	return urls, ids, nil
 }
 
 func (s *CdnService) ReadFile(isOriginal bool, path string, hosts []string) ([]byte, error) {
 
-	availableHost, isSelfHosting := helpers.IsAvailable(hosts, s.domain)
+	availableHost, isSelfHosting := cdnutil.IsAvailable(hosts, s.domain)
 	if !isSelfHosting {
 		//download file's bits here from availableHost
 		_ = availableHost
@@ -229,7 +243,7 @@ func (s *CdnService) ReadFile(isOriginal bool, path string, hosts []string) ([]b
 	res := j.WaitResult()
 	bits, err := res.Out.([]byte), res.Err
 	if err != nil {
-		return nil, cdn_errors.WrapInternal(err, "CdnService.Read.fs.ReadFile")
+		return nil, cdnutil.WrapInternal(err, "CdnService.Read.fs.ReadFile")
 	}
 
 	//User has requested for original file (no need for resolver processing)
@@ -244,7 +258,7 @@ func (s *CdnService) ReadFile(isOriginal bool, path string, hosts []string) ([]b
 func (s *CdnService) MustSave(buff []byte, path string) {
 	ctx, cancel := context.WithTimeout(context.Background(), saveTimeout)
 	defer cancel()
-	//todo: get timeout not from elsewhere but from config...
+
 	select {
 	case <-ctx.Done():
 		s.logger.Errorf("could not save file: %s. Reached timeout: %s", path, ctx.Err().Error())
@@ -286,7 +300,7 @@ func (s *CdnService) InitBuckets(ctx context.Context) error {
 	}
 
 	for _, bucket := range buckets {
-		s.bs.Add(bucket)
+		s.bc.Add(bucket)
 		s.logger.Debugf("bucket: '%s' is added to cache", bucket.Name)
 	}
 
@@ -294,32 +308,33 @@ func (s *CdnService) InitBuckets(ctx context.Context) error {
 }
 
 func (s *CdnService) TryReadExisting(path string) ([]byte, bool, error) {
-
+	// Lookup in cache firstly
 	bits, isCached := s.fc.Lookup(path)
 	if isCached {
 		return bits, true, nil
 	}
 
-	//Checkout for locally resolved file
+	// Checkout for locally resolved file in disk
 	ok := fs.IsExists(path)
 	if ok == true {
 
-		//Handle existing resolved file
+		// Read file from disk
 		j := dealer.NewJob(func() *dealer.JobResult {
 			return dealer.NewJobResult(fs.ReadFile(path))
 		})
+
 		s.dealer.AddJob(j)
 
 		res := j.WaitResult()
 		bits, err := res.Out.([]byte), res.Err
 		if err != nil {
-			return nil, false, cdn_errors.WrapInternal(err, "CdnService.TryReadExisting.fs.ReadFile")
+			return nil, false, cdnutil.WrapInternal(err, "CdnService.TryReadExisting.fs.ReadFile")
 		}
 
 		return bits, true, nil
 	}
 
-	//Does not exist locally or in cache
+	// File does not exist locally or in cache
 	return nil, false, nil
 }
 
@@ -364,7 +379,7 @@ func (s *CdnService) DeleteAll(path string) error {
 		return nil
 	}
 
-	return cdn_errors.ErrCouldNotRemoveFile
+	return entities.ErrFileCantRemove
 }
 
 func (s *CdnService) ParseMime(buff []byte) string {

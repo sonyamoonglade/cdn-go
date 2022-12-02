@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"animakuro/cdn/internal/entities"
-	"animakuro/cdn/pkg/cdn_errors"
 )
 
 type BucketCache struct {
@@ -22,7 +21,7 @@ func NewBucketCache() *BucketCache {
 func (bc *BucketCache) Get(bucketName string) (*entities.Bucket, error) {
 	b, ok := bc.cache[bucketName]
 	if ok == false {
-		return nil, cdn_errors.ErrBucketNotFound
+		return nil, entities.ErrBucketNotFound
 	}
 	return b, nil
 }

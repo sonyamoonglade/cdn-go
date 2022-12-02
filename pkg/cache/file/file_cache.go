@@ -9,6 +9,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type Incrementer interface {
+	Increment(path string)
+}
+
 type Config struct {
 	MaxCacheSize   int64
 	MaxCacheItems  int
@@ -51,8 +55,8 @@ func NewFileCache(logger *zap.SugaredLogger, cfg *Config) *FileCache {
 	}
 }
 
-//Hit increments hits for certain item by specific path
-func (fc *FileCache) Hit(path string) {
+// Increment increments hits for certain file by specific path
+func (fc *FileCache) Increment(path string) {
 	var beats bool
 	isCached := fc.cache.InCache(path)
 
@@ -73,7 +77,7 @@ func (fc *FileCache) Hit(path string) {
 		}
 	}
 
-	//Either beats or counter is already greater
+	// Cache file if its not cached and current file's hits has just beaten the threshold or curr is greater
 	if !isCached && (beats || curr >= fc.hitThreshold) {
 		fc.cache.Cache(path)
 		delete(fc.hits, path)

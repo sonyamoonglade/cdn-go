@@ -11,6 +11,7 @@ import (
 
 var (
 	ErrInvalidExtension = errors.New("file has invalid extension")
+	ErrNoFiles          = errors.New("no files")
 )
 
 type UploadFile struct {
@@ -47,6 +48,11 @@ func ParseFiles(form *multipart.Form) ([]*UploadFile, error) {
 			parsed = append(parsed, &upl)
 		}
 
+	}
+
+	// TODO: test
+	if len(parsed) == 0 {
+		return nil, ErrNoFiles
 	}
 
 	return parsed, nil

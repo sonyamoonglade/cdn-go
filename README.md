@@ -112,12 +112,13 @@ Backend knows what bucket an incoming file should be uploaded to.
 	POST http(s)://cdn.domain.com/site-content
 	+ FormData
 
-CDN will save file to a `{bucket}` ("site-content") and return list [**String Array**] of URL's  which file can be accessed with.
+CDN will save files to a `{bucket}` ("site-content") and return two [**String Array**] lists: list of IDs assigned to uploaded files and list of URLs which files can be accessed with.
 
 ### Example return:
 	201 OK
 
 	{
+	   "ids": ["1234-abcd-4567-fghk"],
 	   "urls": ["cdn.domain.com/site-content/1234-abcd-4567-fghk"]
 	}
 
@@ -176,14 +177,19 @@ There are **3** operations for buckets:
 2. post
 3. delete
 
-### Authentication
-Each operation from the list can have type **Public** or **Private**.
+## Authentication
+Each **Operation** from the list has type **Public** or **Private**.
 
->**Private operation** - *an operation that requires JWT signed token passed with request*
+>**Private operation** - *an operation that requires JWT signed token passed with request*.
+>
+>**Important note** - only one resource (file) could be accessed with one jwt token. 
+> This is an option because each JWT token has it's own fileID inside a payload. See [Payload](#Payload)
 
 >**Public operation** - *an operation that has public API for everyone*
 
 To sign JWT tokens CDN uses *Keys*.
+
+
 
 ### What is a key?
 > **Key** - *private string which JWT token is signed with*
@@ -217,15 +223,29 @@ must sign JWT token with `one of the keys` secret and pass it via `Authorization
 
 Every single JWT token must have payload in it.
 
-**Payload**
+### Payload
 	
 	
 	{
-	  "bucket": "{requested_bucket}" // same as for http request
+	  "bucket": "{requested_bucket}", // same as for http request
+	  "file_id": "{requested_file_uuid}" // same as for http request
 	} // example
 
 	{
-	  "bucket": "site-content"
+	  "bucket": "site-content",
+	  "file_id": "1234-abcd-4567-fghk"
+	}
+
+- You can't access a file (file_id=1234) if your JWT token has payload (file_id=5678).
+- You can't access a file inside (bucket=images) if your JWT token has payload (bucket=site-content).
+
+
+CDN would return:
+
+	StatusCode: 403 Forbidden
+
+	{
+		"message": "access denied"
 	}
 
 ---
@@ -272,7 +292,7 @@ Pay attention to how token is passed in different cases.
 
 ### Possible errors:
 - Missing token -> 401 Unauthorized
-- Invalid token -> 403 Forbidden
+- Invalid format, Invalid token payload, Invalid signature-> 403 Forbidden
 
 
 # Currently supported and implemented modules

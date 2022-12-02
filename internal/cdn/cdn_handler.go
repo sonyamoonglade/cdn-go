@@ -10,15 +10,18 @@ import (
 	cdn_go "animakuro/cdn"
 	"animakuro/cdn/config"
 	"animakuro/cdn/internal/cdn/dto"
+	cdn_errors "animakuro/cdn/internal/cdn/errors"
+	cdnpath "animakuro/cdn/internal/cdn/path"
+	cdnutil "animakuro/cdn/internal/cdn/util"
+	"animakuro/cdn/internal/cdn/validate"
+	"animakuro/cdn/internal/entities"
 	"animakuro/cdn/internal/formdata"
 	"animakuro/cdn/internal/fs"
 	"animakuro/cdn/internal/modules"
-	cache "animakuro/cdn/pkg/cache/bucket"
+	bucketcache "animakuro/cdn/pkg/cache/bucket"
 	filecache "animakuro/cdn/pkg/cache/file"
-	"animakuro/cdn/pkg/cdn_errors"
 	"animakuro/cdn/pkg/hash"
 	"animakuro/cdn/pkg/middleware"
-	"animakuro/cdn/pkg/validate"
 
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
@@ -33,8 +36,8 @@ type Handler struct {
 	mux         *mux.Router
 	memConfig   *config.MemoryConfig
 	middlewares *middleware.Middlewares
-	bc          *cache.BucketCache
-	fc          *filecache.FileCache
+	bc          *bucketcache.BucketCache
+	fc          filecache.Incrementer
 }
 
 func NewHandler(logger *zap.SugaredLogger,
@@ -42,8 +45,8 @@ func NewHandler(logger *zap.SugaredLogger,
 	service Service,
 	memConfig *config.MemoryConfig,
 	middlewares *middleware.Middlewares,
-	bucketCache *cache.BucketCache,
-	fileCache *filecache.FileCache) *Handler {
+	bucketCache *bucketcache.BucketCache,
+	fileCache filecache.Incrementer) *Handler {
 	return &Handler{
 		logger:      logger,
 		mux:         mux,
@@ -85,6 +88,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if bucket is registered
 	err := modules.DoesModuleExist(inp.Module)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
@@ -97,6 +101,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: move to service
 	err = fs.CreateBucket(inp.Name)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
@@ -109,8 +114,10 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.Created(w)
+	// Add to bucket cache
 	h.bc.Add(b)
+
+	response.Created(w)
 	return
 }
 
@@ -124,12 +131,14 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	var rawQuery string
 	var isOriginal bool
 
+	// Get bucket from cache
 	b, err := h.bc.Get(bucket)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
+	// Convert URL to moduleMap (see modules.Parse impl)
 	moduleMap, err := modules.Parse(r.URL.Query(), b.Module)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
@@ -142,49 +151,66 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	sha1 := hash.SHA1Name(rawQuery)
 
 	if !isOriginal {
-		pathToExisting := path.Join(fs.BucketsPath(), bucket, uuid, sha1)
-		bits, isAvailable, err := h.service.TryReadExisting(pathToExisting)
+		// Make path to file and check if already resolved file exists. (isOriginal = false)
+		pathToExisting := cdnpath.ToExistingFile(&cdnpath.Existing{
+			BucketsPath: fs.BucketsPath(),
+			Bucket:      bucket,
+			UUID:        uuid,
+			SHA1:        sha1,
+		})
 
+		bits, isAvailable, err := h.service.TryReadExisting(pathToExisting)
 		if err != nil {
 			cdn_errors.ToHttp(h.logger, w, err)
+			return
 		}
 
+		// Available locally
 		if isAvailable {
-			h.fc.Hit(pathToExisting)
+			h.fc.Increment(pathToExisting)
 			response.Binary(w, bits, h.service.ParseMime(bits))
 			return
 		}
 	}
 
-	//Get original file
+	// Get original file meta from DB
 	f, err := h.service.GetFileDB(r.Context(), bucket, uuid)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
-		if errors.Is(err, cdn_errors.ErrFileNotFound) {
-			//Try to delete file locally (may exist)
-			dirPath := path.Join(bucket, uuid)
+
+		// If meta is not found in DB - delete file from disk.
+		if errors.Is(err, entities.ErrFileNotFound) {
+			dirPath := cdnpath.ToDir(bucket, uuid)
 			h.service.TryDeleteLocally(dirPath)
 		}
+
 		return
 	}
 
-	pathToOriginal := path.Join(fs.BucketsPath(), bucket, uuid, fs.DefaultName+f.Extension)
+	// Make path to original file in disk
+	pathToOriginal := cdnpath.ToOriginalFile(&cdnpath.Original{
+		BucketsPath: fs.BucketsPath(),
+		Bucket:      bucket,
+		UUID:        uuid,
+		DefaultName: fs.DefaultName + f.Extension,
+	})
 	bits, err := h.service.ReadFile(isOriginal, pathToOriginal, f.AvailableIn)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
-	//Serve original file without module processing
+	// Serve original file without module processing (isOriginal = true)
 	if isOriginal {
 		//Can use original file's (f) MimeType
 		response.Binary(w, bits, f.MimeType)
-		h.fc.Hit(pathToOriginal)
+		h.fc.Increment(pathToOriginal)
 		h.logger.Debugf("serving original file: %s", pathToOriginal)
 		return
 	}
 
-	//todo: mime processing
+	// Magic happens here
+	// UseResolver would modify buff according to moduleMap
 	buff := bytes.NewBuffer(bits)
 	err = modules.UseResolvers(buff, b.Module, moduleMap)
 	if err != nil {
@@ -192,14 +218,15 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//Represents path (in future) of resolved file
+	// Make path to resolved file in disk after service.MustSave
 	pathToResolved := path.Join(fs.BucketsPath(), f.Bucket, uuid, sha1)
-	h.fc.Hit(pathToResolved)
+	h.fc.Increment(pathToResolved)
 
 	buffBits := buff.Bytes()
-	response.Binary(w, buffBits, h.service.ParseMime(buffBits))
 
-	defer h.service.MustSave(buff.Bytes(), pathToResolved)
+	defer h.service.MustSave(buffBits, pathToResolved)
+
+	response.Binary(w, buffBits, h.service.ParseMime(buffBits))
 }
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
@@ -209,24 +236,27 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	err := r.ParseMultipartForm(h.memConfig.MaxUploadSize)
 	if err != nil {
-		err = cdn_errors.WrapInternal(err, "Handler.Upload.r.ParseMultipartForm")
+		err = cdnutil.WrapInternal(err, "Handler.Upload.r.ParseMultipartForm")
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
+	// Get files attached to MultipartForm
 	files, err := formdata.ParseFiles(r.MultipartForm)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
-	urls, err := h.service.UploadMany(r.Context(), bucket, files)
+	// Upload files to bucket
+	urls, ids, err := h.service.UploadMany(r.Context(), bucket, files)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
 	response.Json(h.logger, w, http.StatusCreated, response.JSON{
+		"ids":  ids,
 		"urls": urls,
 	})
 }
@@ -247,18 +277,22 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	//todo: iterate over f.AvailableIn and send the same delete request...
 	_ = f
 
+	// Delete file meta in DB
 	err = h.service.DeleteFileDB(r.Context(), bucket, uuid)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
+	// Make path to dir containing all resolved and original files in disk
 	dirPath := path.Join(fs.BucketsPath(), bucket, uuid)
 	err = h.service.DeleteAll(dirPath)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
+
+	//TODO: maybe clear from cache here...
 
 	response.Ok(w)
 }

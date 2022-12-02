@@ -14,7 +14,7 @@ import (
 	"animakuro/cdn/internal/cdn"
 	"animakuro/cdn/internal/fs"
 	"animakuro/cdn/internal/modules"
-	cache "animakuro/cdn/pkg/cache/bucket"
+	bucketcache "animakuro/cdn/pkg/cache/bucket"
 	filecache "animakuro/cdn/pkg/cache/file"
 	"animakuro/cdn/pkg/http_server"
 	"animakuro/cdn/pkg/logging"
@@ -31,30 +31,25 @@ func main() {
 
 	log.Println("booting application...")
 
-	debug, strict, logsPath, bucketsPath := parseFlags()
+	debug, strictLogging, logsPath, bucketsPath, configPath := parseFlags()
 	fs.SetBucketsPath(bucketsPath)
 
 	logger, err := logging.WithConfig(&logging.Config{
 		Encoding: logging.JSON,
-		Strict:   strict,
+		Strict:   strictLogging,
 		LogsPath: logsPath,
 		Debug:    debug,
 	})
-
 	if err != nil {
 		log.Fatalf("could not get logger. %s", err.Error())
 	}
 
+	// Try to get .env variables on development only mode
 	if err := godotenv.Load(".env"); err != nil {
 		logger.Warnf("could not load .env variables %s", err.Error())
 	}
 
-	v, err := config.OpenConfig(config.BasePath)
-	if err != nil {
-		logger.Fatalf("could not open config: %s", err.Error())
-	}
-
-	cfg, err := config.GetAppConfig(v, debug)
+	cfg, err := config.GetAppConfig(configPath, debug)
 	if err != nil {
 		logger.Fatalf("could not get app config. %s", err.Error())
 	}
@@ -72,12 +67,13 @@ func main() {
 	m := mux.NewRouter()
 	srv := http_server.New(cfg.AppPort, cfg.AppHost, m)
 
-	bucketCache := cache.NewBucketCache()
+	bucketCache := bucketcache.NewBucketCache()
 	fileCache := filecache.NewFileCache(logger, cfg.FileCacheConfig)
 	middlewares := middleware.NewMiddlewares(logger, bucketCache)
 
+	// Worker pool for IO operations
 	jobDealer := dealer.New(logger, cfg.MaxWorkers)
-	jobDealer.WithStrategy(dealer.WorkerPool) // see dealer.WorkerPool impl.
+	jobDealer.WithStrategy(dealer.WorkerPool)
 
 	repo := cdn.NewRepository(logger, cfg.DBName, mng.Client())
 	service := cdn.NewService(logger, repo, bucketCache, fileCache, cfg.Domain, jobDealer)
@@ -88,7 +84,6 @@ func main() {
 		logger.Warnf("could not init buckets: %s", err.Error())
 	}
 
-	//Starts several goroutines
 	err = fileCache.Start(debug)
 	if err != nil {
 		logger.Fatalf("could not start fileCache: %s", err.Error())
@@ -96,12 +91,13 @@ func main() {
 
 	handler.InitRoutes()
 
+	// Register all modules. See internal/modules
 	modules.Init()
 
-	//Init worker pool and job pool
+	// Init worker pool and job pool
 	jobDealer.Start(debug)
 
-	//Graceful shutdown
+	// Graceful shutdown
 	shutdown := make(chan os.Signal)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
 
@@ -115,12 +111,12 @@ func main() {
 	<-shutdown
 	logger.Debug("shutting down gracefully...")
 
-	//Context for graceful shutdown
+	// Context for graceful shutdown
 	gctx, gcancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer gcancel()
 
 	if err := srv.Shutdown(gctx); err != nil {
-		//No fatal error to make clean up
+		// No fatal error to make clean up
 		logger.Errorf("server could not shutdown gracefully. %s", err.Error())
 	}
 	logger.Debug("server has shutdown")
@@ -137,18 +133,26 @@ func main() {
 	logger.Debugf("jobDealer has stopped")
 }
 
-func parseFlags() (bool, bool, string, string) {
+func parseFlags() (bool, bool, string, string, string) {
 
 	debug := flag.Bool("debug", true, "determines whether logs are written to stdout or file")
-	strict := flag.Bool("strict-log", false, "determines if logger shouldn't log any info/debug logs")
+	strictLogging := flag.Bool("strict-log", false, "determines if logger shouldn't log any info/debug logs")
 	logsPath := flag.String("logs-path", "", "determines where log file is")
 	bucketsPath := flag.String("buckets-path", "", "determines where /buckets folder is")
+	configPath := flag.String("config-path", "", "determines where config file is")
+
 	flag.Parse()
 
-	//Critical for app if not specified
+	// Critical for app if not specified
 	if *bucketsPath == "" {
 		panic("buckets path is not provided")
 	}
 
-	return *debug, *strict, *logsPath, *bucketsPath
+	// Critical for app if not specified
+	if *configPath == "" {
+		panic("config path is not provided")
+	}
+
+	// Naked return, see return variable names
+	return *debug, *strictLogging, *logsPath, *bucketsPath, *configPath
 }

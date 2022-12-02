@@ -7,7 +7,9 @@ import (
 	"path"
 	"strings"
 
-	"animakuro/cdn/pkg/cdn_errors"
+	cdnutil "animakuro/cdn/internal/cdn/util"
+	"animakuro/cdn/internal/entities"
+
 	"github.com/pkg/errors"
 )
 
@@ -53,12 +55,12 @@ func ReadFile(path string) ([]byte, error) {
 
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, cdn_errors.WrapInternal(err, "Service.ReadOriginalFile.os.Open")
+		return nil, cdnutil.WrapInternal(err, "Service.ReadOriginalFile.os.Open")
 	}
 
 	bits, err := io.ReadAll(f)
 	if err != nil {
-		return nil, cdn_errors.WrapInternal(err, "Service.ReadOriginalFile.io.ReadAll")
+		return nil, cdnutil.WrapInternal(err, "Service.ReadOriginalFile.io.ReadAll")
 	}
 
 	defer f.Close()
@@ -72,7 +74,7 @@ func WriteFileToBucket(buff []byte, bucket string, uuid string, fileName string)
 
 	entr, err := os.ReadDir(dirPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return cdn_errors.WrapInternal(err, "fs.WriteFileToBucket.os.ReadDir")
+		return cdnutil.WrapInternal(err, "fs.WriteFileToBucket.os.ReadDir")
 	}
 
 	//No items (folder does not exist)
@@ -80,7 +82,7 @@ func WriteFileToBucket(buff []byte, bucket string, uuid string, fileName string)
 
 		err = createDir(dirPath)
 		if err != nil {
-			return cdn_errors.WrapInternal(err, "fs.WriteFIleToBucket.createDir")
+			return cdnutil.WrapInternal(err, "fs.WriteFIleToBucket.createDir")
 		}
 
 	}
@@ -91,7 +93,7 @@ func WriteFileToBucket(buff []byte, bucket string, uuid string, fileName string)
 func WriteFile(path string, buff []byte) error {
 	err := os.WriteFile(path, buff, 0777)
 	if err != nil {
-		return cdn_errors.WrapInternal(err, "fs.WriteNew.os.WriteFile")
+		return cdnutil.WrapInternal(err, "fs.WriteNew.os.WriteFile")
 	}
 	return nil
 }
@@ -101,16 +103,16 @@ func CreateBucket(bucket string) error {
 	p := path.Join(bucketsPath, bucket)
 	entr, err := os.ReadDir(p)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return cdn_errors.WrapInternal(err, "fs.CreateBucket.os.ReadDir")
+		return cdnutil.WrapInternal(err, "fs.CreateBucket.os.ReadDir")
 	}
 	//Bucket exists
 	if len(entr) != 0 {
-		return cdn_errors.ErrBucketAlreadyExists
+		return entities.ErrBucketAlreadyExists
 	}
 
 	err = createDir(p)
 	if err != nil {
-		return cdn_errors.WrapInternal(err, "fs.CreateBucket.fs.createDir")
+		return cdnutil.WrapInternal(err, "fs.CreateBucket.fs.createDir")
 	}
 
 	metafilePath := path.Join(p, "meta")
@@ -118,7 +120,7 @@ func CreateBucket(bucket string) error {
 	//todo: delete bucket folder if fails
 	_, err = os.Create(metafilePath)
 	if err != nil {
-		return cdn_errors.WrapInternal(err, "fs.CreateBucket.os.Create")
+		return cdnutil.WrapInternal(err, "fs.CreateBucket.os.Create")
 	}
 
 	return nil

@@ -14,13 +14,9 @@ func TestGetAppConfig(t *testing.T) {
 	os.Setenv("APP_PORT", "9000")
 	os.Setenv("APP_HOST", "localhost")
 	os.Setenv("MONGO_DB_NAME", "dbname")
-	os.Setenv("ENV", "development")
 	os.Setenv("DOMAIN", "mock_domain")
 
-	v, err := OpenConfig("testdata/config.yaml")
-	require.NoError(t, err)
-
-	cfg, err := GetAppConfig(v, true)
+	cfg, err := GetAppConfig("./testdata/config.yaml", true)
 	require.NoError(t, err)
 
 	//envs..
@@ -34,7 +30,6 @@ func TestGetAppConfig(t *testing.T) {
 	//cfg file
 	require.Equal(t, int64(128), cfg.MemoryConfig.MaxUploadSize)
 	require.Equal(t, 100, cfg.MaxWorkers)
-
 	require.Equal(t, 5, cfg.FileCacheConfig.CacheTTL)
 	require.Equal(t, 5, cfg.FileCacheConfig.CacheThreshold)
 	require.Equal(t, 60, cfg.FileCacheConfig.CheckoutEvery)
