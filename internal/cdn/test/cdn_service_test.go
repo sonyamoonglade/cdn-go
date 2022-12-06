@@ -12,16 +12,16 @@ import (
 	"animakuro/cdn/internal/cdn"
 	"animakuro/cdn/internal/cdn/dto"
 	mock_cdn "animakuro/cdn/internal/cdn/mocks"
-	"animakuro/cdn/internal/cdnpath"
+	cdnpath "animakuro/cdn/internal/cdn/path"
 	"animakuro/cdn/internal/entities"
 	"animakuro/cdn/internal/formdata"
 	"animakuro/cdn/internal/fs"
 	cache "animakuro/cdn/pkg/cache/bucket"
 	filecache "animakuro/cdn/pkg/cache/file"
+	"animakuro/cdn/pkg/dealer"
 
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
-	dealer "github.com/sonyamoonglade/dealer-go/v2"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.uber.org/zap"
@@ -32,26 +32,19 @@ const (
 	testBucket      = "plain"
 )
 
-func initDeps(ctrl *gomock.Controller) (*mock_cdn.MockRepository, *zap.SugaredLogger, *cache.BucketCache, *filecache.FileCache, string, *dealer.Dealer) {
+func initDeps(ctrl *gomock.Controller) (*mock_cdn.MockRepository, *zap.SugaredLogger, *cache.BucketCache, filecache.FileCache, string, *dealer.Dealer) {
 
 	fs.SetBucketsPath(testBucketsPath)
 
 	mockRepo := mock_cdn.NewMockRepository(ctrl)
 
-	fc := filecache.NewFileCache(zap.NewNop().Sugar(), &filecache.Config{
-		MaxCacheSize:   128,
-		MaxCacheItems:  5,
-		CacheTTL:       5,
-		CacheThreshold: 1,
-		FlushEvery:     360,
-		CheckoutEvery:  360,
-	})
+	fc := &filecache.NoOpFilecache{}
 
 	bc := cache.NewBucketCache()
 	bc.Add(&entities.Bucket{
 		ID:   primitive.NewObjectID(),
-		Name: "images",
-		Operations: []entities.Operation{
+		Name: "image",
+		Operations: []*entities.Operation{
 			{Name: "get", Type: "public"},
 			{Name: "delete", Type: "public"},
 			{Name: "post", Type: "public"},
@@ -196,6 +189,7 @@ func TestMustSaveOk(t *testing.T) {
 		require.Equal(t, bits[i], buff[i])
 	}
 
+	// Cleanup
 	defer func() {
 		err = fs.TryDelete(path.Join(fs.BucketsPath(), testBucket))
 		require.NoError(t, err)

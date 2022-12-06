@@ -6,12 +6,13 @@ import (
 	"strings"
 
 	"animakuro/cdn/internal/auth"
-	cdnutil "animakuro/cdn/internal/cdn/util"
+	"animakuro/cdn/internal/cdn/cdnutil"
 	"animakuro/cdn/internal/entities"
 	"animakuro/cdn/internal/formdata"
+	"animakuro/cdn/internal/modules"
 	module_errors "animakuro/cdn/internal/modules/errors"
+	"animakuro/cdn/pkg/http/response"
 
-	"github.com/sonyamoonglade/notification-service/pkg/response"
 	"go.uber.org/zap"
 )
 
@@ -25,18 +26,16 @@ func ToHttp(logger *zap.SugaredLogger, w http.ResponseWriter, err error) {
 	)
 
 	if errors.As(err, &m) {
-
 		// Unwrap original wrapped error
 		err = m.Unwrap()
 		if err != nil {
 			// Log full error if it's moduleError
 			logger.Error(err.Error())
 		}
-
 		resp, code = m.ToHTTP()
+		logger.Debug(resp, code)
 		skiplog = true
 	} else {
-
 		// Not module error
 		resp, code = parse(err)
 	}
@@ -105,6 +104,11 @@ func parse(err error) (string, int) {
 	case is(entities.ErrNoFiles):
 		return err.Error(), http.StatusBadRequest
 	// --- Formdata END
+
+	// Module errors
+	case is(modules.ErrNotFound):
+		return err.Error(), http.StatusBadRequest
+	// --- Module END
 
 	default:
 		return "Internal error", http.StatusInternalServerError

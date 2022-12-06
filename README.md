@@ -11,8 +11,9 @@
 
 
 # Navigation
+### - [CDN Basics](#cdn-basics)
 ### - [Modules and Resolvers](#modules-and-resolvers)
-### - [Dealing with Modules as client](#dealing-with-modules-and-resolvers-as-a-client)
+### - [Dealing with modules and resolvers for Frontend](#dealing-with-modules-and-resolvers-for-frontend)
 ### - [Uploading a File](#uploading-a-file)
 ### - [Getting a File](#getting-a-file)
 ### - [Deleting a File](#deleting-a-file)
@@ -21,13 +22,28 @@
 
 --- 
 
+## CDN Basics
+
+*CDN offers Bucket-Like storage.\
+Buckets are specified and created according to mime-type.\
+Therefore, only **one** module can be assigned to a bucket.*
+
+### Example:
+> When bucket is created, module is assigned to it.
+>
+> Assuming we have a bucket called "static-site" and it has **Module** called "*image*".
+>
+> This module might have multiple resolvers. They could be called in a single chain.
+
+---
+
 ## Modules and resolvers
 
 CDN has terms "**module**" and "**resolver**".
 
 ### What is a Module?
 
-> **Module**- *unique set of resolvers grouped by mime-type*
+> **Module** - *is a set of resolvers grouped by mime-type*
  
 ### What is a Resolver?
 
@@ -36,64 +52,60 @@ CDN has terms "**module**" and "**resolver**".
 ### Example: 
 >"*Image*" **Module** has **Resolver** called "crop".
 > 
-> Logically, this module is responsible for processing images.
+> Logically, this module is responsible for processing only images, not music.
 > 
 > And functionality of "crop" is to crop images.
 
-## Must-to know
-
-*CDN offers Bucket-Like storage.\
-Buckets are specified and created according to mime-type.\
-Therefore, only **one** module can be assigned to a bucket.*
-
-### Example:
-> When bucket is created, module is assigned to it
-> 
-> Assuming we have a bucket called "static-site" and it has **Module** "*image*".
-> 
-> This module can have many resolvers. They could be called in a single chain.
-
 ---
 
-# Dealing with modules and resolvers (as a client)
+# Dealing with modules and resolvers for Frontend
+
 Modules and resolvers are sent via URL Query.\
-For example, client wants to get cropped image file using "*image*" **Module** and "*crop*" **Resolver**.
+Let's say that frontend wants to load low resolution image. 
+
+Firstly, look [Currently supported and implemented modules](#currently-supported-and-implemented-modules). \
+This task is achievable using "*image*" **Module** and "*webp*" **Resolver** with "true" **Argument**. 
 
 *First part of url is omitted*
 
 	{module}.{resolver}={arg} // example
+	
+	// 1 resolver
+	GET ...?image.webp=true
 
-	GET ...?image.crop=true
+	// 2 resolvers
+	GET ...?image.webp=true&image.resized=true
 
-Take a look at how combination of **Module** + **Resolver** + **Arg** is passed.
+	// To chain N resolvers use '&'
 
-Usually **Resolvers** don't come alone. \
-They have arguments (**Arg**)
+Take a look at how the set of **Module** + **Resolver** and **Argument** is passed.
 
-Most of the resolvers are simply offering 'true' or 'false' arguments. \
+**Resolvers** don't come alone. They have arguments to determine the behaviour of resolver.
+
+Most of the resolvers are simply offering 'true' or 'false' arguments. 
 
 Occasionally, some resolvers might have custom and specific arguments.\
 For example:
 - normal
 - big
 - large
-- 80
+- 80 (units)
 
 etc...
 
 ### Possible errors
-> **MRA** - Module Resolver Argument
 
-If client requests a file from bucket "site-content" and sends multiple **MRA's**. 
+As we know, only one module can be assigned to a bucket. \
+If it happens that frontend passes two different modules with GET request then error will occur.
 
 For example:
 
 	GET ...?image.crop=true&music.compress=true
 
-*image* **Module** and *music* **Module** are used in one request.\
+"*image*" **Module** and "*music*" **Module** are used in one request.\
 CDN will respond with 400 *BAD REQUEST* code.
 
-As stated, **only one module can be used for 1 bucket!**
+As stated, **only one module can be used for 1 bucket! Pay attention.**
 
 --- 
 
@@ -137,16 +149,17 @@ Knowing the bucket you can get the file by running the following request
 
 This will return original file and 200 *OK*.
 
-### Using Modules and Resolvers
+### Getting a file with Modules and Resolvers
+ 
+Firstly, look at [Currently supported and implemented modules](#currently-supported-and-implemented-modules).
 
-> Assume "*image*" **Module** and **Resolver** "*lowres*" +  **Arg** *"true"* are documented.
-
-If you need to load file processed by a module.\
-For example, on initial page load client wants to load low-resolution image.
+If you need to get file processed with a module you should use *"image"* **Module** and *"webp"* **Resolver**.\
+For example, on initial page load frontend wants to download image with low resolution (less file size).
 
 For this purpose you should send the following request
 
-	GET http(s)://cdn.domain.com/site-content/1234-abcd-4567-fghk?image.lowres=true
+	// 1 resolver
+	GET http(s)://cdn.domain.com/site-content/1234-abcd-4567-fghk?image.webp=true
 
 This will return processed low resolution (webp) file and 200 *OK*
 
@@ -299,12 +312,10 @@ Pay attention to how token is passed in different cases.
 This part of documentation is essential and will provide comprehensive and detailed\
 information about all modules, resolvers and arguments that's currently implemented.
 
-#### Template:
-
-### [Module]
-- **Resolver 1** - *some example functionality...*
-  - arg1: *effects...*
-  - arg2: *extra effects...*
+### [Name of the module]
+- **Resolver**
+  - arg 1: 
+  - arg N: 
 
 
 

@@ -150,19 +150,35 @@ func (mr *MockServiceMockRecorder) ParseMime(buff interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ParseMime", reflect.TypeOf((*MockService)(nil).ParseMime), buff)
 }
 
-// ReadFile mocks base method.
-func (m *MockService) ReadFile(isOrig bool, path string, hosts []string) ([]byte, error) {
+// ReadExisting mocks base method.
+func (m *MockService) ReadExisting(path string) ([]byte, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReadFile", isOrig, path, hosts)
+	ret := m.ctrl.Call(m, "ReadExisting", path)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ReadExisting indicates an expected call of ReadExisting.
+func (mr *MockServiceMockRecorder) ReadExisting(path interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadExisting", reflect.TypeOf((*MockService)(nil).ReadExisting), path)
+}
+
+// ReadFile mocks base method.
+func (m *MockService) ReadFile(path string, hosts []string) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadFile", path, hosts)
 	ret0, _ := ret[0].([]byte)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ReadFile indicates an expected call of ReadFile.
-func (mr *MockServiceMockRecorder) ReadFile(isOrig, path, hosts interface{}) *gomock.Call {
+func (mr *MockServiceMockRecorder) ReadFile(path, hosts interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockService)(nil).ReadFile), isOrig, path, hosts)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadFile", reflect.TypeOf((*MockService)(nil).ReadFile), path, hosts)
 }
 
 // SaveBucketDB mocks base method.
@@ -204,22 +220,6 @@ func (m *MockService) TryDeleteLocally(dirPath string) {
 func (mr *MockServiceMockRecorder) TryDeleteLocally(dirPath interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryDeleteLocally", reflect.TypeOf((*MockService)(nil).TryDeleteLocally), dirPath)
-}
-
-// TryReadExisting mocks base method.
-func (m *MockService) TryReadExisting(path string) ([]byte, bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TryReadExisting", path)
-	ret0, _ := ret[0].([]byte)
-	ret1, _ := ret[1].(bool)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// TryReadExisting indicates an expected call of TryReadExisting.
-func (mr *MockServiceMockRecorder) TryReadExisting(path interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryReadExisting", reflect.TypeOf((*MockService)(nil).TryReadExisting), path)
 }
 
 // UploadMany mocks base method.

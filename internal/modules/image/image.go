@@ -3,19 +3,26 @@ package image
 import (
 	"bytes"
 
-	"animakuro/cdn/internal/modules/errors"
+	module_errors "animakuro/cdn/internal/modules/errors"
 	"animakuro/cdn/internal/modules/types"
+
 	"github.com/h2non/bimg"
 	"github.com/pkg/errors"
 )
 
 const (
-	ModuleName         = "image"
-	Webp               = "webp"
-	Resized            = "resized"
-	TrueStr            = "true"
-	FalseStr           = "false"
 	YAxisResizePercent = 0.2114
+)
+
+const (
+	ModuleName = "image"
+	Webp       = "webp"
+	Resized    = "resized"
+)
+
+const (
+	TrueStr  = "true"
+	FalseStr = "false"
 )
 
 var (

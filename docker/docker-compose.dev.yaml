@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:4.1-bionic
+    restart: on-failure
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./dev/data:/data/db
+    networks:
+      - inet
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=adminpwd
+      - MONGO_INITDB_DATABASE=admin
+
+  cdn:
+    build:
+      context: .
+      dockerfile: ./dev.Dockerfile
+    restart: on-failure
+    volumes:
+      - ${APP_SRC}:/app
+      - ${BUCKETS_SRC}:/data/buckets
+      - /app/docker/dev/data
+      - /app/buckets
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI
+      - MONGO_DB_NAME
+      - APP_PORT
+      - APP_HOST
+    ports:
+      - "5000:5000"
+    networks:
+      - inet
+
+networks:
+  inet:
+    driver: bridge
+

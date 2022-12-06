@@ -9,8 +9,10 @@ import (
 	"go.uber.org/zap"
 )
 
-type Incrementer interface {
+type FileCache interface {
 	Increment(path string)
+	Lookup(path string) ([]byte, bool)
+	Stop()
 }
 
 type Config struct {
@@ -22,19 +24,19 @@ type Config struct {
 	CheckoutEvery  int
 }
 
-type FileCache struct {
+type fileCache struct {
 	cache        *filecache.FileCache
 	hitThreshold int
 	hits         map[string]int
-	mu           *sync.RWMutex
 	logger       *zap.SugaredLogger
-	isFlushing   bool
 	ticker       *time.Ticker
+	mu           *sync.RWMutex
 	wg           *sync.WaitGroup
+	isFlushing   bool
 	shutdown     chan interface{}
 }
 
-func NewFileCache(logger *zap.SugaredLogger, cfg *Config) *FileCache {
+func NewFileCache(logger *zap.SugaredLogger, cfg *Config) *fileCache {
 
 	c := filecache.NewDefaultCache()
 	c.MaxItems = cfg.MaxCacheItems
@@ -42,7 +44,7 @@ func NewFileCache(logger *zap.SugaredLogger, cfg *Config) *FileCache {
 	c.MaxSize = cfg.MaxCacheSize * filecache.Megabyte
 	c.ExpireItem = cfg.CacheTTL
 
-	return &FileCache{
+	return &fileCache{
 		cache:        c,
 		hitThreshold: cfg.CacheThreshold,
 		hits:         make(map[string]int),
@@ -56,7 +58,7 @@ func NewFileCache(logger *zap.SugaredLogger, cfg *Config) *FileCache {
 }
 
 // Increment increments hits for certain file by specific path
-func (fc *FileCache) Increment(path string) {
+func (fc *fileCache) Increment(path string) {
 	var beats bool
 	isCached := fc.cache.InCache(path)
 
@@ -86,52 +88,14 @@ func (fc *FileCache) Increment(path string) {
 	return
 }
 
-func (fc *FileCache) flush() {
-	fc.mu.Lock()
-	for k := range fc.hits {
-		delete(fc.hits, k)
-	}
-	fc.mu.Unlock()
-}
-
-func (fc *FileCache) flushing() {
-	for {
-		select {
-		case <-fc.ticker.C:
-			fc.logger.Debugf("flushing cache")
-			fc.flush()
-		case <-fc.shutdown:
-			fc.ticker.Stop()
-			fc.wg.Done()
-			return
-		}
-	}
-}
-
-func (fc *FileCache) debug() {
-	debugTicker := time.NewTicker(time.Second * 5)
-	for {
-		select {
-		case <-debugTicker.C:
-			mem := float64(fc.cache.FileSize()) / (float64(1024 * 1024))
-			fc.logger.Debugf("cached items: %d cache size: %.4fMB", fc.cache.Size(), mem)
-		case <-fc.shutdown:
-			fc.ticker.Stop()
-			fc.wg.Done()
-			return
-		}
-
-	}
-}
-
-func (fc *FileCache) Start(debug bool) error {
+func (fc *fileCache) Start(debug bool) error {
 	if fc.isFlushing {
 		return nil
 	}
 
 	err := fc.cache.Start()
 	if err != nil {
-		return fmt.Errorf("FileCache.fc.cache.Start")
+		return fmt.Errorf("fileCache.fc.cache.Start")
 	}
 
 	fc.isFlushing = true
@@ -147,7 +111,7 @@ func (fc *FileCache) Start(debug bool) error {
 	return nil
 }
 
-func (fc *FileCache) Lookup(path string) ([]byte, bool) {
+func (fc *fileCache) Lookup(path string) ([]byte, bool) {
 
 	isCached := fc.cache.InCache(path)
 	if !isCached {
@@ -157,8 +121,8 @@ func (fc *FileCache) Lookup(path string) ([]byte, bool) {
 	return fc.cache.GetItem(path)
 }
 
-func (fc *FileCache) Stop() {
-	//Clear hits map
+func (fc *fileCache) Stop() {
+	// Clear hits map
 	fc.mu.Lock()
 	fc.hits = nil
 	fc.mu.Unlock()
@@ -166,6 +130,42 @@ func (fc *FileCache) Stop() {
 	close(fc.shutdown)
 	fc.wg.Wait()
 
-	//Clear file cache and it's underlying stuff
+	// Clear file cache and it's underlying stuff
 	fc.cache.Stop()
+}
+
+func (fc *fileCache) flush() {
+	fc.mu.Lock()
+	for k := range fc.hits {
+		delete(fc.hits, k)
+	}
+	fc.mu.Unlock()
+}
+
+func (fc *fileCache) flushing() {
+	for {
+		select {
+		case <-fc.ticker.C:
+			fc.flush()
+		case <-fc.shutdown:
+			fc.ticker.Stop()
+			fc.wg.Done()
+			return
+		}
+	}
+}
+
+func (fc *fileCache) debug() {
+	debugTicker := time.NewTicker(time.Second * 10)
+	for {
+		select {
+		case <-debugTicker.C:
+			// TODO: prometheus metric
+		case <-fc.shutdown:
+			fc.ticker.Stop()
+			fc.wg.Done()
+			return
+		}
+
+	}
 }

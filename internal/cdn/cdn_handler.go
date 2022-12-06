@@ -2,6 +2,7 @@ package cdn
 
 import (
 	"bytes"
+	"encoding/json"
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
@@ -9,10 +10,10 @@ import (
 
 	cdn_go "animakuro/cdn"
 	"animakuro/cdn/config"
+	"animakuro/cdn/internal/cdn/cdnutil"
 	"animakuro/cdn/internal/cdn/dto"
 	cdn_errors "animakuro/cdn/internal/cdn/errors"
 	cdnpath "animakuro/cdn/internal/cdn/path"
-	cdnutil "animakuro/cdn/internal/cdn/util"
 	"animakuro/cdn/internal/cdn/validate"
 	"animakuro/cdn/internal/entities"
 	"animakuro/cdn/internal/formdata"
@@ -21,23 +22,23 @@ import (
 	bucketcache "animakuro/cdn/pkg/cache/bucket"
 	filecache "animakuro/cdn/pkg/cache/file"
 	"animakuro/cdn/pkg/hash"
+	"animakuro/cdn/pkg/http/response"
 	"animakuro/cdn/pkg/middleware"
 
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
-	"github.com/sonyamoonglade/delivery-service/pkg/binder"
-	"github.com/sonyamoonglade/notification-service/pkg/response"
 	"go.uber.org/zap"
 )
 
 type Handler struct {
-	logger      *zap.SugaredLogger
-	service     Service
-	mux         *mux.Router
-	memConfig   *config.MemoryConfig
-	middlewares *middleware.Middlewares
-	bc          *bucketcache.BucketCache
-	fc          filecache.Incrementer
+	logger           *zap.SugaredLogger
+	service          Service
+	mux              *mux.Router
+	memConfig        *config.MemoryConfig
+	middlewares      *middleware.Middlewares
+	moduleController modules.Controller
+	bc               *bucketcache.BucketCache
+	fc               filecache.FileCache
 }
 
 func NewHandler(logger *zap.SugaredLogger,
@@ -46,15 +47,17 @@ func NewHandler(logger *zap.SugaredLogger,
 	memConfig *config.MemoryConfig,
 	middlewares *middleware.Middlewares,
 	bucketCache *bucketcache.BucketCache,
-	fileCache filecache.Incrementer) *Handler {
+	fileCache filecache.FileCache,
+	moduleController modules.Controller) *Handler {
 	return &Handler{
-		logger:      logger,
-		mux:         mux,
-		service:     service,
-		memConfig:   memConfig,
-		middlewares: middlewares,
-		bc:          bucketCache,
-		fc:          fileCache,
+		logger:           logger,
+		mux:              mux,
+		service:          service,
+		memConfig:        memConfig,
+		middlewares:      middlewares,
+		moduleController: moduleController,
+		bc:               bucketCache,
+		fc:               fileCache,
 	}
 }
 
@@ -83,27 +86,32 @@ func (h *Handler) Healthcheck(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	var inp dto.CreateBucketDto
-	if err := binder.Bind(r.Body, &inp); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&inp); err != nil {
+		err = cdnutil.WrapInternal(err, "Handler.CreateBucket.json.Decode")
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
-	// Check if bucket is registered
-	err := modules.DoesModuleExist(inp.Module)
-	if err != nil {
-		cdn_errors.ToHttp(h.logger, w, err)
-		return
+	// Validations
+	{
+		if err := validate.ValidateRequiredFields(inp); err != nil {
+			h.logger.Infof("%+v", err)
+			cdn_errors.ToHttp(h.logger, w, err)
+			return
+		}
+
+		if err := validate.BucketOperation(inp.Operations); err != nil {
+			cdn_errors.ToHttp(h.logger, w, err)
+			return
+		}
+
+		if ok := h.moduleController.DoesModuleExist(inp.Module); !ok {
+			cdn_errors.ToHttp(h.logger, w, modules.ErrNotFound)
+			return
+		}
 	}
 
-	err = validate.BucketOperation(inp.Operations)
-	if err != nil {
-		cdn_errors.ToHttp(h.logger, w, err)
-		return
-	}
-
-	// TODO: move to service
-	err = fs.CreateBucket(inp.Name)
-	if err != nil {
+	if err := fs.CreateBucket(inp.Name); err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
@@ -118,7 +126,6 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	h.bc.Add(b)
 
 	response.Created(w)
-	return
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
@@ -139,17 +146,17 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert URL to moduleMap (see modules.Parse impl)
-	moduleMap, err := modules.Parse(r.URL.Query(), b.Module)
+	moduleMap, err := h.moduleController.Parse(r.URL.Query(), b.Module)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
 	isOriginal = moduleMap == nil
-	rawQuery = modules.Raw(moduleMap, uuid)
-
+	rawQuery = h.moduleController.Raw(moduleMap, uuid)
 	sha1 := hash.SHA1Name(rawQuery)
 
+	// Try go get exiting processed file.
 	if !isOriginal {
 		// Make path to file and check if already resolved file exists. (isOriginal = false)
 		pathToExisting := cdnpath.ToExistingFile(&cdnpath.Existing{
@@ -159,7 +166,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 			SHA1:        sha1,
 		})
 
-		bits, isAvailable, err := h.service.TryReadExisting(pathToExisting)
+		bits, isAvailable, err := h.service.ReadExisting(pathToExisting)
 		if err != nil {
 			cdn_errors.ToHttp(h.logger, w, err)
 			return
@@ -181,6 +188,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		// If meta is not found in DB - delete file from disk.
 		if errors.Is(err, entities.ErrFileNotFound) {
 			dirPath := cdnpath.ToDir(bucket, uuid)
+			// TODO: mark for deletion
 			h.service.TryDeleteLocally(dirPath)
 		}
 
@@ -194,7 +202,8 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		UUID:        uuid,
 		DefaultName: fs.DefaultName + f.Extension,
 	})
-	bits, err := h.service.ReadFile(isOriginal, pathToOriginal, f.AvailableIn)
+
+	bits, err := h.service.ReadFile(pathToOriginal, f.AvailableIn)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
@@ -202,7 +211,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// Serve original file without module processing (isOriginal = true)
 	if isOriginal {
-		//Can use original file's (f) MimeType
+		// Can use original file's (f) MimeType
 		response.Binary(w, bits, f.MimeType)
 		h.fc.Increment(pathToOriginal)
 		h.logger.Debugf("serving original file: %s", pathToOriginal)
@@ -212,7 +221,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	// Magic happens here
 	// UseResolver would modify buff according to moduleMap
 	buff := bytes.NewBuffer(bits)
-	err = modules.UseResolvers(buff, b.Module, moduleMap)
+	err = h.moduleController.UseResolvers(buff, b.Module, moduleMap)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
@@ -224,6 +233,10 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 	buffBits := buff.Bytes()
 
+	// Important to execute asynchronously (defer), due to
+	// if it fails somehow the next call to Get with resolvers will
+	// resolve (process) the file again and try to save once more.
+	// There's no need to save synchronously. Client will get it's file bits no matter what.
 	defer h.service.MustSave(buffBits, pathToResolved)
 
 	response.Binary(w, buffBits, h.service.ParseMime(buffBits))
@@ -261,6 +274,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// TODO: rethink
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
@@ -274,7 +288,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//todo: iterate over f.AvailableIn and send the same delete request...
+	// todo: iterate over f.AvailableIn and send the same delete request...
 	_ = f
 
 	// Delete file meta in DB

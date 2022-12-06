@@ -4,18 +4,19 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"time"
+	"path"
 
+	"animakuro/cdn/internal/cdn/cdnutil"
 	"animakuro/cdn/internal/cdn/dto"
-	cdnutil "animakuro/cdn/internal/cdn/util"
 	"animakuro/cdn/internal/entities"
 	"animakuro/cdn/internal/formdata"
 	"animakuro/cdn/internal/fs"
-	cache "animakuro/cdn/pkg/cache/bucket"
+
+	bucketcache "animakuro/cdn/pkg/cache/bucket"
 	filecache "animakuro/cdn/pkg/cache/file"
+	"animakuro/cdn/pkg/dealer"
 
 	"github.com/gabriel-vasile/mimetype"
-	"github.com/sonyamoonglade/dealer-go/v2"
 	"go.uber.org/zap"
 )
 
@@ -24,68 +25,59 @@ const (
 	deleteRetries = 5
 )
 
-var (
-	// todo: make configurable
-	saveTimeout = time.Second * 10
-)
-
-var ()
-
 type Service interface {
 	//DB logic
-	GetBucketDB(ctx context.Context, bucketName string) (*entities.Bucket, error)
-	GetFileDB(ctx context.Context, bucket string, uuid string) (*entities.File, error)
-	GetAllBucketsDB(ctx context.Context) ([]*entities.Bucket, error)
-	SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error
-	SaveBucketDB(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error)
-	DeleteFileDB(ctx context.Context, bucket string, uuid string) error
 	InitBuckets(ctx context.Context) error
+	GetBucketDB(ctx context.Context, bucketName string) (*entities.Bucket, error)
+	GetAllBucketsDB(ctx context.Context) ([]*entities.Bucket, error)
+	SaveBucketDB(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error)
+
+	GetFileDB(ctx context.Context, bucket string, uuid string) (*entities.File, error)
+	SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error
+	DeleteFileDB(ctx context.Context, bucket string, uuid string) error
 
 	//Internal CDN logic
 	UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, []string, error)
-	ReadFile(isOrig bool, path string, hosts []string) ([]byte, error)
-	DeleteAll(path string) error
 	MustSave(buff []byte, path string)
-	TryReadExisting(path string) ([]byte, bool, error)
+
+	ReadFile(path string, hosts []string) ([]byte, error)
+	ReadExisting(path string) ([]byte, bool, error)
+
+	DeleteAll(path string) error
 	TryDeleteLocally(dirPath string)
 
 	ParseMime(buff []byte) string
 }
 
-type CdnService struct {
-	logger     *zap.SugaredLogger
-	repository Repository
-	bc         *cache.BucketCache
-	fc         *filecache.FileCache
+type cdnService struct {
 	domain     string
+	repository Repository
+	logger     *zap.SugaredLogger
 	dealer     *dealer.Dealer
+	bc         *bucketcache.BucketCache
+	fc         filecache.FileCache
 }
 
 func NewService(logger *zap.SugaredLogger,
 	repo Repository,
-	bucketCache *cache.BucketCache,
-	fileCache *filecache.FileCache,
+	bucketCache *bucketcache.BucketCache,
+	fileCache filecache.FileCache,
 	domain string,
-	dealer *dealer.Dealer) *CdnService {
-	return &CdnService{
+	dealer *dealer.Dealer) Service {
+	return &cdnService{
 		logger:     logger,
 		repository: repo,
-
-		bc:     bucketCache,
-		fc:     fileCache,
-		domain: domain,
-		dealer: dealer,
+		bc:         bucketCache,
+		fc:         fileCache,
+		domain:     domain,
+		dealer:     dealer,
 	}
 }
 
-func (s *CdnService) SetSaveTimeout(dur time.Duration) {
-	saveTimeout = dur
-}
-
-func (s *CdnService) GetBucketDB(ctx context.Context, name string) (*entities.Bucket, error) {
+func (s *cdnService) GetBucketDB(ctx context.Context, name string) (*entities.Bucket, error) {
 	bucket, err := s.repository.GetBucket(ctx, name)
 	if err != nil {
-		return nil, cdnutil.WrapInternal(err, "CdnService.GetBucket")
+		return nil, cdnutil.WrapInternal(err, "cdnService.GetBucket")
 	}
 
 	//No bucket was found
@@ -96,11 +88,10 @@ func (s *CdnService) GetBucketDB(ctx context.Context, name string) (*entities.Bu
 	return bucket, nil
 }
 
-func (s *CdnService) GetFileDB(ctx context.Context, bucket string, name string) (*entities.File, error) {
-
+func (s *cdnService) GetFileDB(ctx context.Context, bucket string, name string) (*entities.File, error) {
 	file, err := s.repository.GetFile(ctx, bucket, name)
 	if err != nil {
-		return nil, cdnutil.WrapInternal(err, "CdnService.GetFile")
+		return nil, cdnutil.WrapInternal(err, "cdnService.GetFile")
 	}
 
 	//No file was found
@@ -111,11 +102,12 @@ func (s *CdnService) GetFileDB(ctx context.Context, bucket string, name string) 
 	return file, nil
 }
 
-func (s *CdnService) SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error {
+func (s *cdnService) SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error {
 	ok, err := s.repository.SaveFile(ctx, dto)
 	if err != nil {
-		return cdnutil.WrapInternal(err, "CdnService.SaveFileDB.s.repository.SaveFile")
+		return cdnutil.WrapInternal(err, "cdnService.SaveFileDB.s.repository.SaveFile")
 	}
+
 	// Duplicate
 	if ok == false {
 		return entities.ErrFileAlreadyExists
@@ -124,10 +116,10 @@ func (s *CdnService) SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error 
 	return nil
 }
 
-func (s *CdnService) SaveBucketDB(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error) {
+func (s *cdnService) SaveBucketDB(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error) {
 	b, err := s.repository.SaveBucket(ctx, dto)
 	if err != nil {
-		return nil, cdnutil.WrapInternal(err, "CdnService.SaveBucketDB")
+		return nil, cdnutil.WrapInternal(err, "cdnService.SaveBucketDB")
 	}
 
 	// Duplicate
@@ -138,11 +130,12 @@ func (s *CdnService) SaveBucketDB(ctx context.Context, dto dto.CreateBucketDto) 
 	return b, nil
 }
 
-func (s *CdnService) GetAllBucketsDB(ctx context.Context) ([]*entities.Bucket, error) {
+func (s *cdnService) GetAllBucketsDB(ctx context.Context) ([]*entities.Bucket, error) {
 	buckets, err := s.repository.GetAllBuckets(ctx)
 	if err != nil {
-		return nil, cdnutil.WrapInternal(err, "CdnService.GetAllBucketsDB.s.repository.GetAllBuckets")
+		return nil, cdnutil.WrapInternal(err, "cdnService.GetAllBucketsDB.s.repository.GetAllBuckets")
 	}
+
 	//No buckets are present
 	if buckets == nil {
 		return nil, entities.ErrBucketsNotDefined
@@ -151,10 +144,10 @@ func (s *CdnService) GetAllBucketsDB(ctx context.Context) ([]*entities.Bucket, e
 	return buckets, nil
 }
 
-func (s *CdnService) DeleteFileDB(ctx context.Context, bucket string, uuid string) error {
+func (s *cdnService) DeleteFileDB(ctx context.Context, bucket string, uuid string) error {
 	ok, err := s.repository.DeleteFile(ctx, bucket, uuid)
 	if err != nil {
-		return cdnutil.WrapInternal(err, "CdnService.DeleteFileDB.s.repository.DeleteFile")
+		return cdnutil.WrapInternal(err, "cdnService.DeleteFileDB.s.repository.DeleteFile")
 	}
 
 	if !ok {
@@ -164,8 +157,7 @@ func (s *CdnService) DeleteFileDB(ctx context.Context, bucket string, uuid strin
 	return nil
 }
 
-func (s *CdnService) UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, []string, error) {
-
+func (s *cdnService) UploadMany(ctx context.Context, bucket string, files []*formdata.UploadFile) ([]string, []string, error) {
 	var urls []string
 	var ids []string
 
@@ -180,15 +172,13 @@ func (s *CdnService) UploadMany(ctx context.Context, bucket string, files []*for
 			return nil, nil, cdnutil.WrapInternal(err, "UploadFiles.io.ReadAll")
 		}
 
-		j := dealer.NewJob(func() *dealer.JobResult {
+		j := s.dealer.Run(func() *dealer.JobResult {
 			return dealer.NewJobResult(nil, fs.WriteFileToBucket(buff, bucket, file.UUID, file.UploadName))
 		})
-		s.dealer.AddJob(j)
 
-		res := j.WaitResult()
-		s.logger.Debugf("job result: %+v\n", res)
+		res := j.Wait()
 		if err := res.Err; err != nil {
-			return nil, nil, cdnutil.WrapInternal(err, "CdnService.UploadFiles.fs.WriteFileToBucket")
+			return nil, nil, cdnutil.WrapInternal(err, "cdnService.UploadFiles.fs.WriteFileToBucket")
 		}
 
 		//todo: get host from env
@@ -201,97 +191,91 @@ func (s *CdnService) UploadMany(ctx context.Context, bucket string, files []*for
 			Extension:   "." + file.Extension,
 		}
 
-		s.logger.Debugf("dto: %+v\n", fdto)
-
 		err = s.SaveFileDB(ctx, fdto)
 		if err != nil {
-			return nil, nil, err
+			// If saving to DB has failed then delete file locally.
+			defer func() {
+				pathToDelete := path.Join(fs.BucketsPath(), bucket, file.UUID)
+				if err := s.DeleteAll(pathToDelete); err != nil {
+					err = cdnutil.ChainInternal(err, "cdnService.UploadMany->cdnService.DeleteAll")
+					s.logger.Errorf(err.Error())
+				}
+			}()
+
+			// Return to client that something went wrong
+			return nil, nil, cdnutil.ChainInternal(err, "cdnService.UploadMany->cdnService.SaveFileDB")
 		}
 
-		//todo: path
-		path := fmt.Sprintf("%s/%s/%s", s.domain, bucket, file.UUID)
+		fileURL := fmt.Sprintf("%s/%s/%s", s.domain, bucket, file.UUID)
 
-		s.logger.Debugf("path: %s\n", path)
-		urls = append(urls, path)
+		urls = append(urls, fileURL)
 		ids = append(ids, file.UUID)
+
+		s.logger.Debugf("saved: %s to %s at: %s", fdto.Name, bucket, s.domain)
 	}
 
 	return urls, ids, nil
 }
 
-func (s *CdnService) ReadFile(isOriginal bool, path string, hosts []string) ([]byte, error) {
+func (s *cdnService) ReadFile(path string, hosts []string) ([]byte, error) {
 
 	availableHost, isSelfHosting := cdnutil.IsAvailable(hosts, s.domain)
 	if !isSelfHosting {
-		//download file's bits here from availableHost
+		// download file's bits here from availableHost
 		_ = availableHost
 	}
 
-	//Lookup for cached locally original file
+	// Lookup for locally cached original file
 	bits, isCached := s.fc.Lookup(path)
-	if isCached && isOriginal {
-		s.logger.Debugf("found in cache: %s", path)
+	if isCached {
+		s.logger.Debugf("original file is found in cache: %s", path)
 		return bits, nil
 	}
 
-	j := dealer.NewJob(func() *dealer.JobResult {
-		//Read original file from os
+	j := s.dealer.Run(func() *dealer.JobResult {
+		// Read file by path from disk
 		return dealer.NewJobResult(fs.ReadFile(path))
 	})
-	s.dealer.AddJob(j)
 
-	res := j.WaitResult()
+	res := j.Wait()
 	bits, err := res.Out.([]byte), res.Err
 	if err != nil {
-		return nil, cdnutil.WrapInternal(err, "CdnService.Read.fs.ReadFile")
-	}
-
-	//User has requested for original file (no need for resolver processing)
-	if isOriginal {
-		s.logger.Debugf("found locally: %s", path)
-		return bits, nil
+		return nil, cdnutil.WrapInternal(err, "cdnService.ReadFile.fs.ReadFile")
 	}
 
 	return bits, nil
 }
 
-func (s *CdnService) MustSave(buff []byte, path string) {
-	ctx, cancel := context.WithTimeout(context.Background(), saveTimeout)
-	defer cancel()
+func (s *cdnService) MustSave(buff []byte, path string) {
 
-	select {
-	case <-ctx.Done():
-		s.logger.Errorf("could not save file: %s. Reached timeout: %s", path, ctx.Err().Error())
-		return
-	default:
-		var ok bool
-		for i := 0; i < saveRetries; i++ {
-			if ok {
-				return
-			}
-			j := dealer.NewJob(func() *dealer.JobResult {
-				return dealer.NewJobResult(nil, fs.WriteFile(path, buff))
-			})
-			s.dealer.AddJob(j)
-
-			res := j.WaitResult()
-			if err := res.Err; err != nil {
-				s.logger.Errorf("could not save file: %s. err: %s. Retries left: %d", path, err.Error(), saveRetries-i)
-				continue
-			}
-
-			ok = true
-			s.logger.Debugf("saved: %s", path)
+	var ok bool
+	for i := 0; i < saveRetries; i++ {
+		if ok {
+			break
 		}
 
-		if !ok {
-			s.logger.Errorf("could not save file: %s. Fatal", path)
+		j := s.dealer.Run(func() *dealer.JobResult {
+			return dealer.NewJobResult(nil, fs.WriteFile(path, buff))
+		})
+
+		res := j.Wait()
+		if err := res.Err; err != nil {
+			s.logger.Errorf("could not save file: %s. err: %s. Retries left: %d", path, err.Error(), saveRetries-i)
+			continue
 		}
+
+		ok = true
 	}
 
+	if !ok {
+		s.logger.Errorf("could not save file: %s. Fatal", path)
+		return
+	}
+
+	s.logger.Debug("saved file: %s", path)
 }
 
-func (s *CdnService) InitBuckets(ctx context.Context) error {
+func (s *cdnService) InitBuckets(ctx context.Context) error {
 
 	buckets, err := s.GetAllBucketsDB(ctx)
 	if err != nil {
@@ -307,7 +291,7 @@ func (s *CdnService) InitBuckets(ctx context.Context) error {
 	return nil
 }
 
-func (s *CdnService) TryReadExisting(path string) ([]byte, bool, error) {
+func (s *cdnService) ReadExisting(path string) ([]byte, bool, error) {
 	// Lookup in cache firstly
 	bits, isCached := s.fc.Lookup(path)
 	if isCached {
@@ -319,16 +303,14 @@ func (s *CdnService) TryReadExisting(path string) ([]byte, bool, error) {
 	if ok == true {
 
 		// Read file from disk
-		j := dealer.NewJob(func() *dealer.JobResult {
+		j := s.dealer.Run(func() *dealer.JobResult {
 			return dealer.NewJobResult(fs.ReadFile(path))
 		})
 
-		s.dealer.AddJob(j)
-
-		res := j.WaitResult()
+		res := j.Wait()
 		bits, err := res.Out.([]byte), res.Err
 		if err != nil {
-			return nil, false, cdnutil.WrapInternal(err, "CdnService.TryReadExisting.fs.ReadFile")
+			return nil, false, cdnutil.WrapInternal(err, "cdnService.TryReadExisting.fs.ReadFile")
 		}
 
 		return bits, true, nil
@@ -338,34 +320,32 @@ func (s *CdnService) TryReadExisting(path string) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-func (s *CdnService) TryDeleteLocally(dirPath string) {
+func (s *cdnService) TryDeleteLocally(dirPath string) {
 
 	s.logger.Debugf("trying to delete locally: %s", dirPath)
-	j := dealer.NewJob(func() *dealer.JobResult {
+	j := s.dealer.Run(func() *dealer.JobResult {
 		return dealer.NewJobResult(nil, fs.TryDelete(dirPath))
 	})
-	s.dealer.AddJob(j)
 
-	res := j.WaitResult()
+	res := j.Wait()
 	if err := res.Err; err != nil {
 		s.logger.Errorf("could not delete locally at: %s", err.Error())
 	}
 	return
 }
 
-func (s *CdnService) DeleteAll(path string) error {
+func (s *cdnService) DeleteAll(path string) error {
 
 	s.logger.Debugf("deleting all at: %s", path)
 
 	var ok bool
 	for i := 0; i < deleteRetries; i++ {
 
-		j := dealer.NewJob(func() *dealer.JobResult {
+		j := s.dealer.Run(func() *dealer.JobResult {
 			return dealer.NewJobResult(nil, fs.TryDelete(path))
 		})
-		s.dealer.AddJob(j)
 
-		res := j.WaitResult()
+		res := j.Wait()
 		if err := res.Err; err != nil {
 			s.logger.Errorf("could not delete at: %s err: %s. Retries left: %d", path, err.Error(), deleteRetries-i)
 			continue
@@ -382,6 +362,6 @@ func (s *CdnService) DeleteAll(path string) error {
 	return entities.ErrFileCantRemove
 }
 
-func (s *CdnService) ParseMime(buff []byte) string {
+func (s *cdnService) ParseMime(buff []byte) string {
 	return mimetype.Detect(buff).String()
 }

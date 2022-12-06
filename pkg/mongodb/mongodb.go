@@ -12,9 +12,9 @@ type Mongo struct {
 	client *mongo.Client
 }
 
-//New creates instance of mongodb client and pings primary server
+// New creates instance of mongodb client and pings primary server
 func New(ctx context.Context, uri string) (*Mongo, error) {
-
+	// Uses pooling internally
 	opts := options.Client().ApplyURI(uri)
 
 	client, err := mongo.Connect(ctx, opts)

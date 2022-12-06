@@ -22,10 +22,12 @@ type Config struct {
 	LogsPath string
 }
 
+// TODO: structured logging
 func WithConfig(cfg *Config) (*zap.SugaredLogger, error) {
 	builder := zap.NewProductionConfig()
 
 	builder.Encoding = string(cfg.Encoding)
+	builder.DisableStacktrace = true
 	builder.Development = cfg.Debug
 
 	builder.Level = zap.NewAtomicLevelAt(zap.DebugLevel)

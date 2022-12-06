@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,15 +15,14 @@ import (
 	"animakuro/cdn/internal/modules"
 	bucketcache "animakuro/cdn/pkg/cache/bucket"
 	filecache "animakuro/cdn/pkg/cache/file"
-	"animakuro/cdn/pkg/http_server"
+	"animakuro/cdn/pkg/dealer"
+	"animakuro/cdn/pkg/http"
 	"animakuro/cdn/pkg/logging"
 	"animakuro/cdn/pkg/middleware"
 	"animakuro/cdn/pkg/mongodb"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
-	"github.com/pkg/errors"
-	"github.com/sonyamoonglade/dealer-go/v2"
 )
 
 func main() {
@@ -43,6 +41,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("could not get logger. %s", err.Error())
 	}
+	defer logger.Sync()
 
 	// Try to get .env variables on development only mode
 	if err := godotenv.Load(".env"); err != nil {
@@ -53,6 +52,7 @@ func main() {
 	if err != nil {
 		logger.Fatalf("could not get app config. %s", err.Error())
 	}
+	logger.Info(cfg)
 
 	//Context for determining timeout to connect to database
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
@@ -65,11 +65,12 @@ func main() {
 	logger.Info("mongodb has connected")
 
 	m := mux.NewRouter()
-	srv := http_server.New(cfg.AppPort, cfg.AppHost, m)
+	srv := http.NewServer(cfg.AppPort, cfg.AppHost, m)
 
 	bucketCache := bucketcache.NewBucketCache()
 	fileCache := filecache.NewFileCache(logger, cfg.FileCacheConfig)
 	middlewares := middleware.NewMiddlewares(logger, bucketCache)
+	modulesController := modules.NewController()
 
 	// Worker pool for IO operations
 	jobDealer := dealer.New(logger, cfg.MaxWorkers)
@@ -77,7 +78,7 @@ func main() {
 
 	repo := cdn.NewRepository(logger, cfg.DBName, mng.Client())
 	service := cdn.NewService(logger, repo, bucketCache, fileCache, cfg.Domain, jobDealer)
-	handler := cdn.NewHandler(logger, m, service, cfg.MemoryConfig, middlewares, bucketCache, fileCache)
+	handler := cdn.NewHandler(logger, m, service, cfg.MemoryConfig, middlewares, bucketCache, fileCache, modulesController)
 
 	err = service.InitBuckets(ctx)
 	if err != nil {
@@ -91,9 +92,6 @@ func main() {
 
 	handler.InitRoutes()
 
-	// Register all modules. See internal/modules
-	modules.Init()
-
 	// Init worker pool and job pool
 	jobDealer.Start(debug)
 
@@ -102,7 +100,7 @@ func main() {
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.ListenAndServe(); err != nil {
 			log.Fatalf("server could not start listening. %s", err.Error())
 		}
 	}()

@@ -14,7 +14,7 @@ type SaveFileDto struct {
 }
 
 type CreateBucketDto struct {
-	Name       string               `json:"name" validate:"required"`
-	Module     string               `json:"module"`
-	Operations []entities.Operation `json:"operations" validate:"required"`
+	Name       string                `json:"name" validate:"required"`
+	Module     string                `json:"module" validate:"required"`
+	Operations []*entities.Operation `json:"operations" validate:"required"`
 }

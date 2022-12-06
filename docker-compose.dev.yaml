@@ -31,9 +31,9 @@ services:
       - MONGO_URI
       - MONGO_DB_NAME
       - APP_PORT
-      - HOST
+      - APP_HOST
     ports:
-      - "${APP_PORT}:${APP_PORT}"
+      - "5000:5000"
     networks:
       - inet
 

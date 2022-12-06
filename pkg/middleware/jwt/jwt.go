@@ -8,6 +8,7 @@ import (
 	"animakuro/cdn/internal/auth"
 	cdn_errors "animakuro/cdn/internal/cdn/errors"
 	cache "animakuro/cdn/pkg/cache/bucket"
+
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )
@@ -28,10 +29,18 @@ func (m *Middleware) Auth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		vars := mux.Vars(r)
+
 		operation := strings.ToLower(r.Method)
 		bucketName := vars[cdn_go.BucketKey]
-		// todo: rename
-		fileUUID := vars[cdn_go.FileUUIDKey]
+
+		// TODO: rename
+		var fileUUID string
+
+		// For get, post operations FileUUIDKey is provided.
+		if operation != cdn_go.OperationPost {
+			fileUUID = vars[cdn_go.FileUUIDKey]
+		}
+
 		m.logger.Debugf("operation: %s bucket: %s", operation, bucketName)
 
 		b, err := m.bc.Get(bucketName)
@@ -43,11 +52,19 @@ func (m *Middleware) Auth(h http.HandlerFunc) http.HandlerFunc {
 		var keys []string
 		for _, op := range b.Operations {
 			if op.Name == operation {
-				//No jwt verification if operation is public
+				// No jwt verification if operation is public
 				if op.Type == cdn_go.OperationTypePublic {
 					h.ServeHTTP(w, r)
 					return
 				}
+
+				// If op.Keys is empty and operation type is private then access must be denied.
+				// Omit the check for private operation. (See jwt.go:56)
+				if op.Keys == nil {
+					cdn_errors.ToHttp(m.logger, w, auth.ErrAccessDenied)
+					return
+				}
+
 				keys = op.Keys
 			}
 		}

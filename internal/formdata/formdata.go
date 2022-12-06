@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"animakuro/cdn/internal/fs"
+
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
@@ -15,11 +16,12 @@ var (
 )
 
 type UploadFile struct {
-	Extension  string
+	// Generated from fs.DefaultName and Extension
 	UploadName string
+	Extension  string
+	UUID       string
 	MimeType   string
 	Size       int64
-	UUID       string
 	Open       func() (multipart.File, error)
 }
 

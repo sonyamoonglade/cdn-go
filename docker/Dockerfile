@@ -5,7 +5,7 @@ COPY go.mod ./
 COPY go.sum ./
 RUN go mod download
 COPY . .
-RUN GOOS=linux go build -v -o out/animakuro-cdn cmd/main.go
+RUN GOOS=linux go build -o out/animakuro-cdn cmd/main.go
 
 FROM alpine:3.16
 WORKDIR /app

@@ -13,7 +13,7 @@ var ErrBucketsNotDefined = errors.New("no buckets are defined in database")
 type Bucket struct {
 	ID         primitive.ObjectID `bson:"_id"`
 	Name       string             `bson:"name"`
-	Operations []Operation        `bson:"operations"`
+	Operations []*Operation       `bson:"operations"`
 	Module     string             `bson:"module"`
 }
 
