@@ -5,6 +5,7 @@ import (
 
 	"animakuro/cdn/internal/cdn/dto"
 	"animakuro/cdn/internal/entities"
+
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -19,26 +20,32 @@ const (
 
 type Repository interface {
 	GetBucket(ctx context.Context, name string) (*entities.Bucket, error)
-	GetFile(ctx context.Context, bucket string, uuid string) (*entities.File, error)
 	GetAllBuckets(ctx context.Context) ([]*entities.Bucket, error)
-	SaveFile(ctx context.Context, dto dto.SaveFileDto) (bool, error)
 	SaveBucket(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error)
+
+	GetFile(ctx context.Context, bucket string, uuid string) (*entities.File, error)
+	SaveFile(ctx context.Context, dto dto.SaveFileDto) (bool, error)
+
+	// Actually deletes the file from database forever
 	DeleteFile(ctx context.Context, bucket string, uuid string) (bool, error)
+	// Makes file ready to be deleted.
+	// Marked file no longer can be accessed via GetFile
+	MarkAsDeletable(ctx context.Context, bucket string, mongoID primitive.ObjectID) error
 }
 
-type CdnRepository struct {
+type cdnRepo struct {
 	db     *mongo.Database
 	logger *zap.SugaredLogger
 }
 
-func NewRepository(logger *zap.SugaredLogger, dbname string, client *mongo.Client) *CdnRepository {
-	return &CdnRepository{
+func NewRepository(logger *zap.SugaredLogger, dbname string, client *mongo.Client) *cdnRepo {
+	return &cdnRepo{
 		logger: logger,
 		db:     client.Database(dbname),
 	}
 }
 
-func (r *CdnRepository) SaveBucket(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error) {
+func (r *cdnRepo) SaveBucket(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error) {
 	res, err := r.db.Collection(BucketCollection).InsertOne(ctx, dto)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -48,17 +55,15 @@ func (r *CdnRepository) SaveBucket(ctx context.Context, dto dto.CreateBucketDto)
 		return nil, err
 	}
 
-	b := &entities.Bucket{
+	return &entities.Bucket{
 		ID:         res.InsertedID.(primitive.ObjectID),
 		Name:       dto.Name,
 		Operations: dto.Operations,
 		Module:     dto.Module,
-	}
-
-	return b, nil
+	}, nil
 }
 
-func (r *CdnRepository) GetBucket(ctx context.Context, name string) (*entities.Bucket, error) {
+func (r *cdnRepo) GetBucket(ctx context.Context, name string) (*entities.Bucket, error) {
 
 	var b entities.Bucket
 
@@ -76,7 +81,7 @@ func (r *CdnRepository) GetBucket(ctx context.Context, name string) (*entities.B
 	return &b, nil
 }
 
-func (r *CdnRepository) GetFile(ctx context.Context, bucket string, uuid string) (*entities.File, error) {
+func (r *cdnRepo) GetFile(ctx context.Context, bucket string, uuid string) (*entities.File, error) {
 
 	var f entities.File
 
@@ -94,8 +99,7 @@ func (r *CdnRepository) GetFile(ctx context.Context, bucket string, uuid string)
 	return &f, nil
 }
 
-func (r *CdnRepository) SaveFile(ctx context.Context, dto dto.SaveFileDto) (bool, error) {
-
+func (r *cdnRepo) SaveFile(ctx context.Context, dto dto.SaveFileDto) (bool, error) {
 	_, err := r.db.Collection(FileCollection).InsertOne(ctx, dto)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
@@ -107,7 +111,7 @@ func (r *CdnRepository) SaveFile(ctx context.Context, dto dto.SaveFileDto) (bool
 	return true, nil
 }
 
-func (r *CdnRepository) GetAllBuckets(ctx context.Context) ([]*entities.Bucket, error) {
+func (r *cdnRepo) GetAllBuckets(ctx context.Context) ([]*entities.Bucket, error) {
 
 	c, err := r.db.Collection(BucketCollection).Find(ctx, bson.D{{}})
 	if err != nil {
@@ -131,7 +135,7 @@ func (r *CdnRepository) GetAllBuckets(ctx context.Context) ([]*entities.Bucket, 
 	return buckets, nil
 }
 
-func (r *CdnRepository) DeleteFile(ctx context.Context, bucket string, uuid string) (bool, error) {
+func (r *cdnRepo) DeleteFile(ctx context.Context, bucket string, uuid string) (bool, error) {
 
 	q := bson.D{{"bucket", bucket}, {"uuid", uuid}}
 
@@ -145,4 +149,19 @@ func (r *CdnRepository) DeleteFile(ctx context.Context, bucket string, uuid stri
 	}
 
 	return true, nil
+}
+
+func (r *cdnRepo) MarkAsDeletable(ctx context.Context, bucket string, mongoID primitive.ObjectID) error {
+
+	q := bson.D{{"_id", mongoID}, {"is_deletable", false}}
+
+	// Update
+	update := bson.D{{"$set", bson.D{{"is_deletable", true}}}}
+
+	_, err := r.db.Collection(FileCollection).UpdateOne(ctx, q, update)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

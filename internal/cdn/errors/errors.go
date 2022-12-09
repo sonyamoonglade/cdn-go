@@ -57,10 +57,6 @@ func parse(err error) (string, int) {
 
 	switch true {
 
-	// TODO: remove strings.Contains
-	case strings.Contains(err.Error(), "binding error"):
-		return err.Error(), http.StatusBadRequest
-
 	case strings.Contains(err.Error(), "validation"):
 		return err.Error(), http.StatusBadRequest
 
@@ -79,8 +75,11 @@ func parse(err error) (string, int) {
 	// --- Auth END
 
 	// File entity
-	case is(entities.ErrFileCantRemove):
+	case is(entities.ErrFileCantDelete):
 		return err.Error(), http.StatusServiceUnavailable
+
+	case is(entities.ErrFileAlreadyDeleted):
+		return err.Error(), http.StatusBadRequest
 
 	case is(entities.ErrFileNotFound):
 		return err.Error(), http.StatusNotFound

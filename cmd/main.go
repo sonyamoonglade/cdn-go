@@ -70,7 +70,7 @@ func main() {
 	bucketCache := bucketcache.NewBucketCache()
 	fileCache := filecache.NewFileCache(logger, cfg.FileCacheConfig)
 	middlewares := middleware.NewMiddlewares(logger, bucketCache)
-	modulesController := modules.NewController()
+	moduleController := modules.NewController()
 
 	// Worker pool for IO operations
 	jobDealer := dealer.New(logger, cfg.MaxWorkers)
@@ -78,7 +78,16 @@ func main() {
 
 	repo := cdn.NewRepository(logger, cfg.DBName, mng.Client())
 	service := cdn.NewService(logger, repo, bucketCache, fileCache, cfg.Domain, jobDealer)
-	handler := cdn.NewHandler(logger, m, service, cfg.MemoryConfig, middlewares, bucketCache, fileCache, modulesController)
+	handler := cdn.NewHandler(&cdn.HandlerDeps{
+		Logger:           logger,
+		Mux:              m,
+		Middlewares:      middlewares,
+		Service:          service,
+		ModuleController: moduleController,
+		BucketCache:      bucketCache,
+		FileCache:        fileCache,
+		MemConfig:        cfg.MemoryConfig,
+	})
 
 	err = service.InitBuckets(ctx)
 	if err != nil {

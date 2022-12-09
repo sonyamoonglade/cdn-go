@@ -17,6 +17,7 @@ import (
 	"animakuro/cdn/pkg/dealer"
 
 	"github.com/gabriel-vasile/mimetype"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.uber.org/zap"
 )
 
@@ -34,6 +35,7 @@ type Service interface {
 
 	GetFileDB(ctx context.Context, bucket string, uuid string) (*entities.File, error)
 	SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error
+	MarkAsDeletableDB(ctx context.Context, bucket string, mongoID primitive.ObjectID) error
 	DeleteFileDB(ctx context.Context, bucket string, uuid string) error
 
 	//Internal CDN logic
@@ -94,8 +96,16 @@ func (s *cdnService) GetFileDB(ctx context.Context, bucket string, name string) 
 		return nil, cdnutil.WrapInternal(err, "cdnService.GetFile")
 	}
 
-	//No file was found
+	// No file was found
 	if file == nil {
+		return nil, entities.ErrFileNotFound
+	}
+
+	// Marked for deletion
+	if file.IsDeletable == true {
+		// Return NotFound because clients shouldn't know that file is deleted.
+		// If it's marked, for them it's equal to NotFound.
+		// This is a special case.
 		return nil, entities.ErrFileNotFound
 	}
 
@@ -154,6 +164,13 @@ func (s *cdnService) DeleteFileDB(ctx context.Context, bucket string, uuid strin
 		return entities.ErrFileNotFound
 	}
 
+	return nil
+}
+
+func (s *cdnService) MarkAsDeletableDB(ctx context.Context, bucket string, mongoID primitive.ObjectID) error {
+	if err := s.repository.MarkAsDeletable(ctx, bucket, mongoID); err != nil {
+		return cdnutil.WrapInternal(err, "cdnService.MarkAsDeletableDB.s.repository.MarkAsDeletable")
+	}
 	return nil
 }
 
@@ -362,7 +379,7 @@ func (s *cdnService) DeleteAll(path string) error {
 		return nil
 	}
 
-	return entities.ErrFileCantRemove
+	return entities.ErrFileCantDelete
 }
 
 func (s *cdnService) ParseMime(buff []byte) string {

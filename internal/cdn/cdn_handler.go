@@ -3,6 +3,7 @@ package cdn
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
@@ -41,23 +42,27 @@ type Handler struct {
 	fc               filecache.FileCache
 }
 
-func NewHandler(logger *zap.SugaredLogger,
-	mux *mux.Router,
-	service Service,
-	memConfig *config.MemoryConfig,
-	middlewares *middleware.Middlewares,
-	bucketCache *bucketcache.BucketCache,
-	fileCache filecache.FileCache,
-	moduleController modules.Controller) *Handler {
+type HandlerDeps struct {
+	Logger           *zap.SugaredLogger
+	Mux              *mux.Router
+	Middlewares      *middleware.Middlewares
+	Service          Service
+	ModuleController modules.Controller
+	BucketCache      *bucketcache.BucketCache
+	FileCache        filecache.FileCache
+	MemConfig        *config.MemoryConfig
+}
+
+func NewHandler(deps *HandlerDeps) *Handler {
 	return &Handler{
-		logger:           logger,
-		mux:              mux,
-		service:          service,
-		memConfig:        memConfig,
-		middlewares:      middlewares,
-		moduleController: moduleController,
-		bc:               bucketCache,
-		fc:               fileCache,
+		logger:           deps.Logger,
+		mux:              deps.Mux,
+		service:          deps.Service,
+		memConfig:        deps.MemConfig,
+		middlewares:      deps.Middlewares,
+		moduleController: deps.ModuleController,
+		bc:               deps.BucketCache,
+		fc:               deps.FileCache,
 	}
 }
 
@@ -133,8 +138,10 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	bucket := vars[cdn_go.BucketKey]
 	uuid := vars[cdn_go.FileUUIDKey]
 
-	var rawQuery string
-	var isOriginal bool
+	var (
+		rawQuery   string
+		isOriginal bool
+	)
 
 	// Get bucket from cache
 	b, err := h.bc.Get(bucket)
@@ -151,7 +158,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isOriginal = moduleMap == nil
-	// TODO: if file is orinal replace for var...
 	rawQuery = h.moduleController.Raw(moduleMap, uuid)
 	sha1 := hash.SHA1Name(rawQuery)
 
@@ -183,14 +189,13 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	f, err := h.service.GetFileDB(r.Context(), bucket, uuid)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
-
+		fmt.Println(err)
 		// If meta is not found in DB - delete file from disk.
 		if errors.Is(err, entities.ErrFileNotFound) {
 			dirPath := cdnpath.ToDir(bucket, uuid)
 			// TODO: mark for deletion
 			h.service.TryDeleteLocally(dirPath)
 		}
-
 		return
 	}
 
@@ -273,7 +278,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// TODO: rethink
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
@@ -290,22 +294,19 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	// todo: iterate over f.AvailableIn and send the same delete request...
 	_ = f
 
-	// Delete file meta in DB
-	err = h.service.DeleteFileDB(r.Context(), bucket, uuid)
-	if err != nil {
-		cdn_errors.ToHttp(h.logger, w, err)
+	// Already marked
+	if f.IsDeletable == true {
+		cdn_errors.ToHttp(h.logger, w, entities.ErrFileAlreadyDeleted)
 		return
 	}
 
-	// Make path to dir containing all resolved and original files in disk
-	dirPath := path.Join(fs.BucketsPath(), bucket, uuid)
-	err = h.service.DeleteAll(dirPath)
+	// Mark file as deletable in DB
+	err = h.service.MarkAsDeletableDB(r.Context(), bucket, f.ID)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
 	}
 
 	//TODO: maybe clear from cache here...
-
 	response.Ok(w)
 }
