@@ -120,7 +120,6 @@ github.com/spf13/viper/internal/encoding/yaml
 ## explicit; go 1.13
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
-github.com/stretchr/testify/suite
 # github.com/subosito/gotenv v1.4.1
 ## explicit; go 1.18
 github.com/subosito/gotenv
