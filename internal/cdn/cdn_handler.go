@@ -95,7 +95,6 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	// Validations
 	{
 		if err := validate.ValidateRequiredFields(inp); err != nil {
-			h.logger.Infof("%+v", err)
 			cdn_errors.ToHttp(h.logger, w, err)
 			return
 		}
@@ -129,7 +128,6 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-
 	vars := mux.Vars(r)
 
 	bucket := vars[cdn_go.BucketKey]
@@ -153,6 +151,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isOriginal = moduleMap == nil
+	// TODO: if file is orinal replace for var...
 	rawQuery = h.moduleController.Raw(moduleMap, uuid)
 	sha1 := hash.SHA1Name(rawQuery)
 

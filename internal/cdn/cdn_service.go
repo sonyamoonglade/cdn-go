@@ -173,6 +173,7 @@ func (s *cdnService) UploadMany(ctx context.Context, bucket string, files []*for
 		}
 
 		j := s.dealer.Run(func() *dealer.JobResult {
+			// todo: move path to var
 			return dealer.NewJobResult(nil, fs.WriteFileToBucket(buff, bucket, file.UUID, file.UploadName))
 		})
 
@@ -195,6 +196,8 @@ func (s *cdnService) UploadMany(ctx context.Context, bucket string, files []*for
 		if err != nil {
 			// If saving to DB has failed then delete file locally.
 			defer func() {
+				// TODO: move to cdn/path
+				// use path from cdn_service.go:176
 				pathToDelete := path.Join(fs.BucketsPath(), bucket, file.UUID)
 				if err := s.DeleteAll(pathToDelete); err != nil {
 					err = cdnutil.ChainInternal(err, "cdnService.UploadMany->cdnService.DeleteAll")

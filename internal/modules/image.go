@@ -41,11 +41,13 @@ func newImageModule() *Module {
 }
 
 func webpfn(buff *bytes.Buffer, arg interface{}) error {
+
 	if arg != TrueStr {
 		return nil
 	}
 
 	img := bimg.NewImage(buff.Bytes())
+
 	newimg, err := img.Convert(bimg.WEBP)
 	if err != nil {
 		return module_errors.WrapInternal(err, "image.webpfn.img.Convert")

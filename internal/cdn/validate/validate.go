@@ -30,7 +30,7 @@ func BucketOperation(ops []*entities.Operation) error {
 	return nil
 }
 
-func ValidateRequiredFields(dto interface{}) error {
+func ValidateRequiredFields(dto any) error {
 	err := v.Struct(dto)
 	if err == nil {
 		return nil
