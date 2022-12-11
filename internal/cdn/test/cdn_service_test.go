@@ -16,7 +16,7 @@ import (
 	"animakuro/cdn/internal/entities"
 	"animakuro/cdn/internal/formdata"
 	"animakuro/cdn/internal/fs"
-	cache "animakuro/cdn/pkg/cache/bucket"
+	bucketcache "animakuro/cdn/pkg/cache/bucket"
 	filecache "animakuro/cdn/pkg/cache/file"
 	"animakuro/cdn/pkg/dealer"
 
@@ -32,7 +32,7 @@ const (
 	testBucket      = "plain"
 )
 
-func initDeps(ctrl *gomock.Controller) (*mock_cdn.MockRepository, *zap.SugaredLogger, *cache.BucketCache, filecache.FileCache, string, *dealer.Dealer) {
+func initDeps(ctrl *gomock.Controller) (*mock_cdn.MockRepository, *zap.SugaredLogger, *bucketcache.BucketCache, filecache.FileCache, string, *dealer.Dealer) {
 
 	fs.SetBucketsPath(testBucketsPath)
 
@@ -40,7 +40,7 @@ func initDeps(ctrl *gomock.Controller) (*mock_cdn.MockRepository, *zap.SugaredLo
 
 	fc := &filecache.NoOpFilecache{}
 
-	bc := cache.NewBucketCache()
+	bc := bucketcache.NewBucketCache()
 	bc.Add(&entities.Bucket{
 		ID:   primitive.NewObjectID(),
 		Name: "image",

@@ -11,6 +11,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	primitive "go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // MockRepository is a mock of Repository interface.
@@ -94,6 +95,20 @@ func (m *MockRepository) GetFile(ctx context.Context, bucket, uuid string) (*ent
 func (mr *MockRepositoryMockRecorder) GetFile(ctx, bucket, uuid interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFile", reflect.TypeOf((*MockRepository)(nil).GetFile), ctx, bucket, uuid)
+}
+
+// MarkAsDeletable mocks base method.
+func (m *MockRepository) MarkAsDeletable(ctx context.Context, bucket string, mongoID primitive.ObjectID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkAsDeletable", ctx, bucket, mongoID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkAsDeletable indicates an expected call of MarkAsDeletable.
+func (mr *MockRepositoryMockRecorder) MarkAsDeletable(ctx, bucket, mongoID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkAsDeletable", reflect.TypeOf((*MockRepository)(nil).MarkAsDeletable), ctx, bucket, mongoID)
 }
 
 // SaveBucket mocks base method.

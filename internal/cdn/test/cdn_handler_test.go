@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"testing"
 
-	cdn_go "animakuro/cdn"
 	"animakuro/cdn/internal/cdn"
 	mock_cdn "animakuro/cdn/internal/cdn/mocks"
 	"animakuro/cdn/internal/entities"
@@ -46,53 +45,27 @@ var bucket = &entities.Bucket{
 
 // Do not use t.Parallel(). It breaks mocking with EXPECT()
 func TestGet(t *testing.T) {
-
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	// Deps
-	logger := zap.NewNop().Sugar()
-	bucketCache := bucketcache.NewBucketCache()
-	fileCache := &filecache.NoOpFilecache{}
-	router := mux.NewRouter()
-	service := mock_cdn.NewMockService(ctrl)
-	controller := mock_modules.NewMockController(ctrl)
+	service, moduleController := getMocks(ctrl)
+	deps := setupDeps()
 
-	{
-		moduleController := modules.NewController()
+	router := deps.Mux
 
-		// Not mocking .Raw, keeping the real implementation
-		controller.EXPECT().Raw(gomock.Any(), gomock.Any()).DoAndReturn(
-			func(mm modules.ModuleMap, uuid string) string {
-				return moduleController.Raw(mm, uuid)
-			},
-		).AnyTimes()
+	handler := cdn.NewHandler(&cdn.HandlerDeps{
+		Logger:           deps.Logger,
+		Mux:              deps.Mux,
+		BucketCache:      deps.BucketCache,
+		FileCache:        deps.FileCache,
+		Service:          service,
+		ModuleController: moduleController,
+		// Pass nil: see cdn_handler_test.go:97
+		Middlewares: nil,
+		MemConfig:   nil,
+	})
 
-		// Not mocking .Parse, keeping the real implementation
-		controller.EXPECT().Parse(gomock.Any(), gomock.Any()).DoAndReturn(
-			func(q url.Values, module string) (modules.ModuleMap, error) {
-				return moduleController.Parse(q, module)
-			},
-		).AnyTimes()
-	}
-
-	{
-		// Keep real implementation of ParseMime
-		service.EXPECT().ParseMime(gomock.Any()).DoAndReturn(
-			func(buff []byte) string {
-				return mimetype.Detect(buff).String()
-			},
-		).AnyTimes()
-	}
-
-	// Add bucket to cache
-	bucketCache.Add(bucket)
-
-	handler := cdn.NewHandler(logger, router, service, nil /* memory config */, nil /* middlewares */, bucketCache, fileCache, controller)
-	// Do not call handler.InitRoutes() to prevent middlewares handling the request first!
-	// That's why we pass nil
-	// handler.InitRoutes()
-	router.HandleFunc(fmt.Sprintf("/{%s}/{%s}", cdn_go.BucketKey, cdn_go.FileUUIDKey), handler.Get)
+	router.HandleFunc("/{bucket}/{fileUUID}", handler.Get)
 
 	// build path to resource
 	fileID := uuid.NewString()
@@ -119,10 +92,13 @@ func TestGet(t *testing.T) {
 		mockBits := []byte("hello world!")
 
 		DBFile := &entities.File{
-			ID:          primitive.NewObjectID(),
-			UUID:        uuid.NewString(),
+			ID:   primitive.NewObjectID(),
+			UUID: uuid.NewString(),
+			AvailableIn: []string{
+				"cdn.com",
+			},
+			IsDeletable: false,
 			Bucket:      bucket.Name,
-			AvailableIn: []string{"cdn.com"},
 			MimeType:    "text/plain; charset=utf-8",
 			Extension:   ".txt",
 		}
@@ -207,10 +183,13 @@ func TestGet(t *testing.T) {
 		mockResolvedBits := []byte("Hello mama!")
 
 		DBFile := &entities.File{
-			ID:          primitive.NewObjectID(),
-			UUID:        uuid.NewString(),
+			ID:   primitive.NewObjectID(),
+			UUID: uuid.NewString(),
+			AvailableIn: []string{
+				"cdn.com",
+			},
+			IsDeletable: false,
 			Bucket:      bucket.Name,
-			AvailableIn: []string{"cdn.com"},
 			MimeType:    "text/plain; charset=utf-8",
 			Extension:   ".txt",
 		}
@@ -225,7 +204,7 @@ func TestGet(t *testing.T) {
 		// Should be called with resolved bits
 		service.EXPECT().MustSave(mockResolvedBits, gomock.Any() /* path */).Times(1)
 
-		controller.EXPECT().UseResolvers(gomock.Any(), bucket.Module, gomock.Any()).DoAndReturn(
+		moduleController.EXPECT().UseResolvers(gomock.Any(), bucket.Module, gomock.Any()).DoAndReturn(
 			func(buff *bytes.Buffer, module string, mm modules.ModuleMap) error {
 				// Write some data to buffer. See cdn_handler.go:217
 				buff.Reset()
@@ -256,5 +235,185 @@ func TestGet(t *testing.T) {
 		require.Equal(t, http.StatusOK, code)
 		require.Equal(t, "text/plain; charset=utf-8", contentType)
 	})
+
+	t.Run("should return ErrNotFound because file is marked for deletion. Get original file", func(t *testing.T) {
+
+		DBFile := &entities.File{
+			ID:   primitive.NewObjectID(),
+			UUID: uuid.NewString(),
+			AvailableIn: []string{
+				"cdn.com",
+			},
+			Bucket: bucket.Name,
+			// Marked for deletion
+			IsDeletable: true,
+			MimeType:    "text/plain; charset=utf-8",
+			Extension:   ".txt",
+		}
+
+		// Should return ErrFileNotFound because f.IsDeletable = true
+		service.EXPECT().GetFileDB(gomock.Any(), bucket.Name, fileID /* uuid */).Return(DBFile, entities.ErrFileNotFound).Times(1)
+		service.EXPECT().TryDeleteLocally(gomock.Any()).Times(1)
+
+		// Make url with query so that isOriginal inside handler is true
+		url := fmt.Sprintf("https://cdn.com/%s/%s", bucket.Name, fileID /* uuid */)
+
+		r, err := http.NewRequest(http.MethodGet, url, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+
+		// Will call handler.Get
+		router.ServeHTTP(w, r)
+
+		respStr := w.Body.String()
+		code := w.Code
+
+		expectedResponse := fmt.Sprintf(`{"message":"%s"}`, entities.ErrFileNotFound.Error())
+
+		require.Equal(t, http.StatusNotFound, code)
+		require.Equal(t, expectedResponse, respStr)
+	})
+
+}
+
+func TestDelete(t *testing.T) {
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	service, moduleController := getMocks(ctrl)
+	deps := setupDeps()
+
+	handler := cdn.NewHandler(&cdn.HandlerDeps{
+		Logger:           deps.Logger,
+		Mux:              deps.Mux,
+		BucketCache:      deps.BucketCache,
+		FileCache:        deps.FileCache,
+		Service:          service,
+		ModuleController: moduleController,
+		// Pass nil: see cdn_handler_test.go:97
+		Middlewares: nil,
+		MemConfig:   nil,
+	})
+
+	router := deps.Mux
+
+	router.HandleFunc("/{bucket}/{fileUUID}", handler.Delete)
+
+	fileID := uuid.NewString()
+
+	t.Run("should mark file as deletable", func(t *testing.T) {
+		DBFile := &entities.File{
+			ID:          primitive.NewObjectID(),
+			UUID:        uuid.NewString(),
+			Bucket:      bucket.Name,
+			AvailableIn: []string{"cdn.com"},
+			MimeType:    "text/plain; charset=utf-8",
+			Extension:   ".txt",
+			// Not marked yet
+			IsDeletable: false,
+		}
+
+		service.EXPECT().GetFileDB(gomock.Any(), bucket.Name, fileID).Return(DBFile, nil)
+
+		service.EXPECT().MarkAsDeletableDB(gomock.Any(), bucket.Name, DBFile.ID).Return(nil)
+
+		url := fmt.Sprintf("https://cdn.com/%s/%s", bucket.Name, fileID /* uuid */)
+
+		r, err := http.NewRequest(http.MethodDelete, url, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+
+		// Will call handler.Delete
+		router.ServeHTTP(w, r)
+
+		code := w.Code
+
+		require.Equal(t, http.StatusOK, code)
+		require.Nil(t, w.Body.Bytes())
+	})
+
+	t.Run("should return error ErrFileAlreadyDeleted", func(t *testing.T) {
+		DBFile := &entities.File{
+			ID:          primitive.NewObjectID(),
+			UUID:        uuid.NewString(),
+			Bucket:      bucket.Name,
+			AvailableIn: []string{"cdn.com"},
+			MimeType:    "text/plain; charset=utf-8",
+			Extension:   ".txt",
+			// Already marked for deletion
+			IsDeletable: true,
+		}
+
+		service.EXPECT().GetFileDB(gomock.Any(), bucket.Name, fileID).Return(DBFile, nil)
+
+		url := fmt.Sprintf("https://cdn.com/%s/%s", bucket.Name, fileID /* uuid */)
+
+		r, err := http.NewRequest(http.MethodDelete, url, nil)
+		require.NoError(t, err)
+
+		w := httptest.NewRecorder()
+
+		// Will call handler.Delete
+		router.ServeHTTP(w, r)
+
+		code := w.Code
+		respStr := w.Body.String()
+
+		expectedResponse := fmt.Sprintf(`{"message":"%s"}`, entities.ErrFileAlreadyDeleted.Error())
+
+		require.Equal(t, http.StatusBadRequest, code)
+		require.Equal(t, expectedResponse, respStr)
+	})
+}
+
+func getMocks(ctrl *gomock.Controller) (service *mock_cdn.MockService, moduleControllerMock *mock_modules.MockController) {
+	service = mock_cdn.NewMockService(ctrl)
+	moduleControllerMock = mock_modules.NewMockController(ctrl)
+	moduleController := modules.NewController()
+
+	// Keep real implementations
+	{
+		moduleControllerMock.EXPECT().Raw(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(mm modules.ModuleMap, uuid string) string {
+				return moduleController.Raw(mm, uuid)
+			},
+		).AnyTimes()
+
+		moduleControllerMock.EXPECT().Parse(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(q url.Values, module string) (modules.ModuleMap, error) {
+				return moduleController.Parse(q, module)
+			},
+		).AnyTimes()
+
+		service.EXPECT().ParseMime(gomock.Any()).DoAndReturn(
+			func(buff []byte) string {
+				return mimetype.Detect(buff).String()
+			},
+		).AnyTimes()
+	}
+
+	// Naked return!
+	return
+}
+
+func setupDeps() *cdn.HandlerDeps {
+	logger := zap.NewNop().Sugar()
+	bucketCache := bucketcache.NewBucketCache()
+	fileCache := &filecache.NoOpFilecache{}
+	router := mux.NewRouter()
+
+	bucketCache.Add(bucket)
+
+	return &cdn.HandlerDeps{
+		Logger:      logger,
+		BucketCache: bucketCache,
+		FileCache:   fileCache,
+		Mux:         router,
+		Middlewares: nil,
+		MemConfig:   nil,
+	}
 
 }

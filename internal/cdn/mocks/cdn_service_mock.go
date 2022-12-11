@@ -12,6 +12,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	primitive "go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // MockService is a mock of Service interface.
@@ -122,6 +123,20 @@ func (m *MockService) InitBuckets(ctx context.Context) error {
 func (mr *MockServiceMockRecorder) InitBuckets(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitBuckets", reflect.TypeOf((*MockService)(nil).InitBuckets), ctx)
+}
+
+// MarkAsDeletableDB mocks base method.
+func (m *MockService) MarkAsDeletableDB(ctx context.Context, bucket string, mongoID primitive.ObjectID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkAsDeletableDB", ctx, bucket, mongoID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkAsDeletableDB indicates an expected call of MarkAsDeletableDB.
+func (mr *MockServiceMockRecorder) MarkAsDeletableDB(ctx, bucket, mongoID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkAsDeletableDB", reflect.TypeOf((*MockService)(nil).MarkAsDeletableDB), ctx, bucket, mongoID)
 }
 
 // MustSave mocks base method.
