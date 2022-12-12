@@ -3,7 +3,9 @@ run:
 
 stop:
 	./docker/stop.dev.sh
-	
+
+prom:
+	docker run --name prometheus --rm -v $(pwd)/prometheus.yml:/etc/prometheus -p 9090:9090 prom/prometheus
 
 migrate:
 	 migrate -path=./migrations -database="mongodb://admin:adminpwd@localhost:27017/cdn?authsource=admin" up

@@ -32,7 +32,6 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 
-	// Ignore http.ErrServerClosed
 	return nil
 }
 

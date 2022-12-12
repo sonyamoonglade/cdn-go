@@ -3,6 +3,7 @@ package fs
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 	"strings"
@@ -71,7 +72,7 @@ func ReadFile(path string) ([]byte, error) {
 }
 
 func WriteFileToBucket(buff []byte, bucket string, uuid string, fileName string) error {
-
+	log.Println("buff lenght: ", len(buff))
 	dirPath := path.Join(bucketsPath, bucket, uuid)
 	fullPath := path.Join(dirPath, fileName)
 

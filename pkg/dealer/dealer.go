@@ -98,6 +98,7 @@ func (d *Dealer) startWorkerPool() {
 func (d *Dealer) startWorker(n int) {
 	for j := range d.jobq {
 		j.resultch <- j.f()
+		close(j.resultch)
 	}
 	defer d.wg.Done()
 }
@@ -108,6 +109,7 @@ func (d *Dealer) startWithSemaphore() {
 		d.wg.Add(1)
 		go func(j *Job) {
 			j.resultch <- j.f()
+			close(j.resultch)
 			defer func() {
 				d.wg.Done()
 				d.release()

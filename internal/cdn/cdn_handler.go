@@ -3,7 +3,6 @@ package cdn
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
@@ -189,7 +188,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	f, err := h.service.GetFileDB(r.Context(), bucket, uuid)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
-		fmt.Println(err)
 		// If meta is not found in DB - delete file from disk.
 		if errors.Is(err, entities.ErrFileNotFound) {
 			dirPath := cdnpath.ToDir(bucket, uuid)
@@ -224,6 +222,8 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// Magic happens here
 	// UseResolver would modify buff according to moduleMap
+	// TODO: think for resolving queue
+	h.logger.Debugf("buff len: %d path: %s f: %+v", len(bits), pathToOriginal, f)
 	buff := bytes.NewBuffer(bits)
 	err = h.moduleController.UseResolvers(buff, b.Module, moduleMap)
 	if err != nil {
@@ -236,14 +236,13 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	h.fc.Increment(pathToResolved)
 
 	buffBits := buff.Bytes()
-
 	// Important to execute asynchronously (defer), due to
 	// if it fails somehow the next call to Get with resolvers will
 	// resolve (process) the file again and try to save once more.
 	// There's no need to save synchronously. Client will get it's file bits no matter what.
-	defer h.service.MustSave(buffBits, pathToResolved)
-
 	response.Binary(w, buffBits, h.service.ParseMime(buffBits))
+	h.service.MustSave(buffBits, pathToResolved)
+	// buff = nil
 }
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {

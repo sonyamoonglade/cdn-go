@@ -37,6 +37,29 @@ services:
     networks:
       - inet
 
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ${APP_SRC}/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - inet
+
+  grafana:
+    image: grafana/grafana
+    user: root
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ${APP_SRC}/grafana/provisioning:/etc/grafana/provisioning
+      - ${APP_SRC}/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - inet
+
+
 networks:
   inet:
     driver: bridge

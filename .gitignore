@@ -10,16 +10,15 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
-
+*.dev.sh
 # Intellij and GoLand
 .idea
-
 # Environment file
 .env
 
 # Docker volumes for local database
 /docker/dev
-
+grafana
 buckets/*
 
 /bin

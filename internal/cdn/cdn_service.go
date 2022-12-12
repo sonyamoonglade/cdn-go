@@ -292,7 +292,7 @@ func (s *cdnService) MustSave(buff []byte, path string) {
 		return
 	}
 
-	s.logger.Debug("saved file: %s", path)
+	s.logger.Debugf("saved file: %s", path)
 }
 
 func (s *cdnService) InitBuckets(ctx context.Context) error {

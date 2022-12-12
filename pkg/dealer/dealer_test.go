@@ -38,8 +38,8 @@ func TestCanExecuteJobsWithWorkerPool(t *testing.T) {
 		return NewJobResult(nil, nil)
 	}
 
-	j := newJob(f)
 	for i := 0; i < 50; i++ {
+		j := newJob(f)
 		d.addJob(j)
 		res := j.Wait()
 		require.NoError(t, res.Err)
@@ -60,7 +60,7 @@ func TestWorkerPoolIsFasterThanSemaphore(t *testing.T) {
 	//In this example, workerPool should win in time, because only once
 	//100 workers will be created
 	//Semaphore in a long run might cause big GC pauses and sheduling overall.
-	localMaxWorkers := 200
+	localMaxWorkers := 100
 	d := New(logger.Sugar(), localMaxWorkers)
 	d.WithStrategy(Semaphore)
 
@@ -73,9 +73,9 @@ func TestWorkerPoolIsFasterThanSemaphore(t *testing.T) {
 	}
 
 	startSemaphore := time.Now()
-	j := newJob(f)
 	for i := 0; i < 10000; i++ {
 
+		j := newJob(f)
 		d.addJob(j)
 		res := j.Wait()
 		require.NoError(t, res.Err)
@@ -101,8 +101,8 @@ func TestWorkerPoolIsFasterThanSemaphore(t *testing.T) {
 	}
 
 	startPool := time.Now()
-	j2 := newJob(f2)
 	for i := 0; i < 10000; i++ {
+		j2 := newJob(f2)
 		d2.addJob(j2)
 		res := j2.Wait()
 		require.NoError(t, res.Err)
@@ -132,8 +132,8 @@ func TestCanExecuteOneJobSync(t *testing.T) {
 		return NewJobResult(nil, nil)
 	}
 
-	j := newJob(f)
 	for i := 0; i < 50; i++ {
+		j := newJob(f)
 		d.addJob(j)
 		res := j.Wait()
 		require.NoError(t, res.Err)
@@ -154,13 +154,13 @@ func TestCanExecuteOneJobAsync(t *testing.T) {
 		return NewJobResult(nil, nil)
 	}
 
-	j := newJob(f)
 	wg := new(sync.WaitGroup)
 
 	for i := 0; i < 50; i++ {
 		//async
 		wg.Add(1)
 		go func() {
+			j := newJob(f)
 			d.addJob(j)
 			res := j.Wait()
 			wg.Done() //important order
