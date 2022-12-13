@@ -33,7 +33,6 @@ func ToHttp(logger *zap.SugaredLogger, w http.ResponseWriter, err error) {
 			logger.Error(err.Error())
 		}
 		resp, code = m.ToHTTP()
-		logger.Debugf("%s %d", resp, code)
 		skiplog = true
 	} else {
 		// Not module error

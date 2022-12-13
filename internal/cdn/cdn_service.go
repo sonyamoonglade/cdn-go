@@ -129,7 +129,7 @@ func (s *cdnService) SaveFileDB(ctx context.Context, dto dto.SaveFileDto) error 
 func (s *cdnService) SaveBucketDB(ctx context.Context, dto dto.CreateBucketDto) (*entities.Bucket, error) {
 	b, err := s.repository.SaveBucket(ctx, dto)
 	if err != nil {
-		return nil, cdnutil.WrapInternal(err, "cdnService.SaveBucketDB")
+		return nil, cdnutil.WrapInternal(err, "cdnService.SaveBucketDB.repository.SaveBucket")
 	}
 
 	// Duplicate

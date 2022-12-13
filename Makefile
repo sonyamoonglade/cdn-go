@@ -4,8 +4,11 @@ run:
 stop:
 	./docker/stop.dev.sh
 
-prom:
-	docker run --name prometheus --rm -v $(pwd)/prometheus.yml:/etc/prometheus -p 9090:9090 prom/prometheus
+run-test-container:
+	docker-compose -f ./docker/docker-compose.test.yaml -p stress-test --env-file=./.env.test up
+
+build-run-test-container:
+	docker-compose -f ./docker/docker-compose.test.yaml -p stress-test --env-file=./.env.test up --build
 
 migrate:
 	 migrate -path=./migrations -database="mongodb://admin:adminpwd@localhost:27017/cdn?authsource=admin" up

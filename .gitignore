@@ -18,8 +18,9 @@
 
 # Docker volumes for local database
 /docker/dev
-grafana
-buckets/*
+/grafana
+/buckets/*
+/secrets
 
 /bin
 

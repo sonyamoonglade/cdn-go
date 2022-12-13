@@ -32,7 +32,7 @@ func WithConfig(cfg *Config) (*zap.SugaredLogger, error) {
 
 	builder.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	if cfg.Strict {
-		builder.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
+		builder.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 	}
 
 	//Prod

@@ -51,7 +51,6 @@ func (r *cdnRepo) SaveBucket(ctx context.Context, dto dto.CreateBucketDto) (*ent
 		if mongo.IsDuplicateKeyError(err) {
 			return nil, nil
 		}
-
 		return nil, err
 	}
 

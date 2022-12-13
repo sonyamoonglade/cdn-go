@@ -125,7 +125,6 @@ func (c *controller) UseResolvers(buff *bytes.Buffer, module string, mm ModuleMa
 	_ = buff
 	for resolverName, resolverArg := range mm {
 		r := c.resolver(module, resolverName)
-		c.logger.Debugf("applying module:[%s] resolver:[%s] arg:[%s]. BuffLen: %d", module, resolverName, resolverArg, buff.Len())
 		err := r(buff, resolverArg)
 		if err != nil {
 			return module_errors.WrapInternal(err, "controller.UseResolvers.r")

@@ -2,29 +2,27 @@ version: "3.8"
 
 services:
   mongo:
+    container_name: "mongodb"
     image: mongo:6
     restart: on-failure
     ports:
       - "27017:27017"
-    volumes:
-      - ./dev/data:/data/db
     networks:
-      - inet
+      - test-net
     environment:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=adminpwd
-      - MONGO_INITDB_DATABASE=admin
+      - MONGO_INITDB_DATABASE=adminpwd
 
   cdn:
+    container_name: "cdn"
     build:
-      context: .
-      dockerfile: ./dev.Dockerfile
+      context: ${APP_SRC}
+      dockerfile: ${APP_SRC}/docker/Dockerfile
     restart: on-failure
     volumes:
-      - ${APP_SRC}:/app
-      - ${APP_SRC}/buckets:/data/buckets
-      - /app/docker/dev/data
-      - /app/buckets
+      - ${APP_SRC}/logs:/data/logs
+      - ${APP_SRC}/config.yaml:/app/config.yaml
     depends_on:
       - mongo
     environment:
@@ -34,18 +32,18 @@ services:
       - DOMAIN
       - APP_HOST
     ports:
-      - "5000:5000"
+      - "9001:9001"
     networks:
-      - inet
+      - test-net
 
   prometheus:
     image: prom/prometheus
     ports:
       - "9090:9090"
     volumes:
-      - ${APP_SRC}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ${APP_SRC}/prometheus/prometheus_test.yml:/etc/prometheus/prometheus.yml
     networks:
-      - inet
+      - test-net
 
   grafana:
     image: grafana/grafana
@@ -58,10 +56,8 @@ services:
       - ${APP_SRC}/grafana/provisioning:/etc/grafana/provisioning
       - ${APP_SRC}/grafana/dashboards:/var/lib/grafana/dashboards
     networks:
-      - inet
-
+      - test-net
 
 networks:
-  inet:
+  test-net:
     driver: bridge
-

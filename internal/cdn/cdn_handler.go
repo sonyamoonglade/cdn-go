@@ -88,7 +88,6 @@ func (h *Handler) Healthcheck(w http.ResponseWriter, _ *http.Request) {
 	return
 }
 func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
-
 	var inp dto.CreateBucketDto
 	if err := json.NewDecoder(r.Body).Decode(&inp); err != nil {
 		err = cdnutil.WrapInternal(err, "Handler.CreateBucket.json.Decode")
@@ -114,6 +113,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Also checks if exists locally
 	if err := fs.CreateBucket(inp.Name); err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
@@ -223,7 +223,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	// Magic happens here
 	// UseResolver would modify buff according to moduleMap
 	// TODO: think for resolving queue
-	h.logger.Debugf("buff len: %d path: %s f: %+v", len(bits), pathToOriginal, f)
 	buff := bytes.NewBuffer(bits)
 	err = h.moduleController.UseResolvers(buff, b.Module, moduleMap)
 	if err != nil {
@@ -242,7 +241,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	// There's no need to save synchronously. Client will get it's file bits no matter what.
 	response.Binary(w, buffBits, h.service.ParseMime(buffBits))
 	h.service.MustSave(buffBits, pathToResolved)
-	// buff = nil
 }
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
