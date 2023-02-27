@@ -14,6 +14,7 @@ services:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=adminpwd
       - MONGO_INITDB_DATABASE=admin
+      - MONGO_DATABASE=cdn
 
   cdn:
     build:

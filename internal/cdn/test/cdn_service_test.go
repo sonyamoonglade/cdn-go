@@ -99,7 +99,7 @@ func TestUploadManyOk(t *testing.T) {
 		},
 	}
 
-	d.Start(false)
+	d.Start()
 	ff := []*formdata.UploadFile{f}
 
 	// Create bucket for test
@@ -165,7 +165,7 @@ func TestMustSaveOk(t *testing.T) {
 	repo, logger, bc, fc, domain, d := initDeps(ctrl)
 	defer ctrl.Finish()
 
-	d.Start(false)
+	d.Start()
 
 	service := cdn.NewService(logger, repo, bc, fc, domain, d)
 

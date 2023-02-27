@@ -6,13 +6,6 @@ import (
 )
 
 func StartRecordingMetrics(h *mux.Router) {
-	// reg := prometheus.NewRegistry()
 	h.Handle("/metrics", promhttp.Handler())
-	// h.Handle("/api/metrics", promhttp.HandlerFor(
-	// 	reg,
-	// 	promhttp.HandlerOpts{
-	// 		Registry: reg,
-	// 	},
-	// ))
 	return
 }

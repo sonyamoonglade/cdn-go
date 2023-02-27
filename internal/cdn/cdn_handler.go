@@ -160,7 +160,8 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	rawQuery = h.moduleController.Raw(moduleMap, uuid)
 	sha1 := hash.SHA1Name(rawQuery)
 
-	// Try go get exiting processed file.
+	// Try go get existing processed file.
+	// TODO: think of what if file is deleted
 	if !isOriginal {
 		// Make path to file and check if already resolved file exists. (isOriginal = false)
 		pathToExisting := cdnpath.ToExistingFile(&cdnpath.Existing{
@@ -244,7 +245,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-
 	vars := mux.Vars(r)
 	bucket := vars[cdn_go.BucketKey]
 
@@ -276,7 +276,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-
 	vars := mux.Vars(r)
 
 	bucket := vars[cdn_go.BucketKey]

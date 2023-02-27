@@ -315,9 +315,9 @@ func TestDelete(t *testing.T) {
 			IsDeletable: false,
 		}
 
-		service.EXPECT().GetFileDB(gomock.Any(), bucket.Name, fileID).Return(DBFile, nil)
+		service.EXPECT().GetFileDB(gomock.Any(), bucket.Name, fileID).Return(DBFile, nil).Times(1)
 
-		service.EXPECT().MarkAsDeletableDB(gomock.Any(), bucket.Name, DBFile.ID).Return(nil)
+		service.EXPECT().MarkAsDeletableDB(gomock.Any(), bucket.Name, DBFile.ID).Return(nil).Times(1)
 
 		url := fmt.Sprintf("https://cdn.com/%s/%s", bucket.Name, fileID /* uuid */)
 
@@ -372,7 +372,7 @@ func TestDelete(t *testing.T) {
 func getMocks(ctrl *gomock.Controller) (service *mock_cdn.MockService, moduleControllerMock *mock_modules.MockController) {
 	service = mock_cdn.NewMockService(ctrl)
 	moduleControllerMock = mock_modules.NewMockController(ctrl)
-	moduleController := modules.NewController()
+	moduleController := modules.NewController(setupDeps().Logger)
 
 	// Keep real implementations
 	{

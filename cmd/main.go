@@ -103,7 +103,7 @@ func main() {
 	metrics.StartRecordingMetrics(router)
 
 	// Init worker pool and job pool
-	jobDealer.Start(debug)
+	jobDealer.Start()
 
 	// Graceful shutdown
 	shutdown := make(chan os.Signal)

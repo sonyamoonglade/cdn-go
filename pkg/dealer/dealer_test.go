@@ -18,7 +18,7 @@ func TestCanStartStop(t *testing.T) {
 	logger, _ := zap.NewProduction()
 
 	d := New(logger.Sugar(), maxWorkers)
-	d.Start(true)
+	d.Start()
 	d.Stop()
 
 }
@@ -30,7 +30,7 @@ func TestCanExecuteJobsWithWorkerPool(t *testing.T) {
 	d := New(logger.Sugar(), maxWorkers)
 	d.WithStrategy(WorkerPool)
 
-	d.Start(true)
+	d.Start()
 
 	f := func() *JobResult {
 		for i := 0; i < 50; i++ {
@@ -50,81 +50,12 @@ func TestCanExecuteJobsWithWorkerPool(t *testing.T) {
 
 }
 
-func TestWorkerPoolIsFasterThanSemaphore(t *testing.T) {
-	t.Parallel()
-	logger := zap.NewNop()
-
-	//Semaphore pattern means for each job one goroutine will be created
-	//thus, giving a lot of overhead if jobs are constantly being added.
-	//
-	//In this example, workerPool should win in time, because only once
-	//100 workers will be created
-	//Semaphore in a long run might cause big GC pauses and sheduling overall.
-	localMaxWorkers := 100
-	d := New(logger.Sugar(), localMaxWorkers)
-	d.WithStrategy(Semaphore)
-
-	d.Start(true)
-
-	f := func() *JobResult {
-		for i := 0; i < 50; i++ {
-		}
-		return NewJobResult(nil, nil)
-	}
-
-	startSemaphore := time.Now()
-	for i := 0; i < 10000; i++ {
-
-		j := newJob(f)
-		d.addJob(j)
-		res := j.Wait()
-		require.NoError(t, res.Err)
-		require.Nil(t, res.Out)
-	}
-
-	elapsedSemaphore := time.Now().Sub(startSemaphore).Microseconds()
-	d.Stop()
-
-	// ------------------------------
-
-	d2 := New(logger.Sugar(), localMaxWorkers)
-	d2.WithStrategy(WorkerPool)
-
-	//sleep is required for all workers to spin-up
-	d2.Start(true)
-	time.Sleep(time.Millisecond * 50)
-
-	f2 := func() *JobResult {
-		for i := 0; i < 50; i++ {
-		}
-		return NewJobResult(nil, nil)
-	}
-
-	startPool := time.Now()
-	for i := 0; i < 10000; i++ {
-		j2 := newJob(f2)
-		d2.addJob(j2)
-		res := j2.Wait()
-		require.NoError(t, res.Err)
-		require.Nil(t, res.Out)
-
-	}
-	elapsedPool := time.Now().Sub(startPool).Microseconds()
-
-	d2.Stop()
-
-	//This test shows 3x-5x more perfomance with workers
-	//See explanation at the top of the test
-	//Semaphore might be usefull to do batch-jobs at once ASAP
-	require.Less(t, elapsedPool, elapsedSemaphore)
-}
-
 func TestCanExecuteOneJobSync(t *testing.T) {
 	t.Parallel()
 	logger := zap.NewNop()
 
 	d := New(logger.Sugar(), maxWorkers)
-	d.Start(true)
+	d.Start()
 
 	f := func() *JobResult {
 		for i := 0; i < 50; i++ {
@@ -146,7 +77,7 @@ func TestCanExecuteOneJobAsync(t *testing.T) {
 	logger := zap.NewNop()
 
 	d := New(logger.Sugar(), maxWorkers)
-	d.Start(true)
+	d.Start()
 
 	f := func() *JobResult {
 		for i := 0; i < 50; i++ {
@@ -187,7 +118,7 @@ func TestCanExecuteLongJobsAndReadErrorsAsync(t *testing.T) {
 	// - limit(2.02seconds) - actualExecutionTime > 0
 	limit := (float64(200) * float64(jobCount) * 1.01) / float64(maxWorkers*1000)
 
-	d.Start(true)
+	d.Start()
 
 	wg := new(sync.WaitGroup)
 	start := time.Now()
@@ -210,7 +141,6 @@ func TestCanExecuteLongJobsAndReadErrorsAsync(t *testing.T) {
 	d.Stop()
 
 	elapsed := time.Now().Sub(start).Seconds()
-	t.Logf("%.4f; %.4f", limit, elapsed)
 	require.Less(t, elapsed, limit)
 
 }
@@ -220,7 +150,7 @@ func TestCanExecuteJobsAndReceiveOutput(t *testing.T) {
 	logger := zap.NewNop()
 
 	d := New(logger.Sugar(), maxWorkers)
-	d.Start(true)
+	d.Start()
 
 	for i := 0; i < 50; i++ {
 		j := newJob(func() *JobResult {

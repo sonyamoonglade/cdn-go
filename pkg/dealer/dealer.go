@@ -43,12 +43,12 @@ func New(logger *zap.SugaredLogger, maxWorkers int) *Dealer {
 	}
 }
 
-//Sets strategy to a dealer instance
+// WithStrategy sets strategy to a dealer instance
 func (d *Dealer) WithStrategy(strategy Strategy) {
 	d.strategy = strategy
 }
 
-func (d *Dealer) Start(debug bool) {
+func (d *Dealer) Start() {
 	atomic.StoreInt32(&d.started, 1)
 	switch d.strategy {
 	case Semaphore:
@@ -91,14 +91,14 @@ func (d *Dealer) addJob(j *Job) {
 func (d *Dealer) startWorkerPool() {
 	for n := 1; n <= d.maxWorkers; n++ {
 		d.wg.Add(1)
-		go d.startWorker(n)
+		go d.startWorker()
 	}
 }
 
-func (d *Dealer) startWorker(n int) {
+// TODO: add timeout
+func (d *Dealer) startWorker() {
 	for j := range d.jobq {
 		j.resultch <- j.f()
-		close(j.resultch)
 	}
 	defer d.wg.Done()
 }
@@ -109,7 +109,6 @@ func (d *Dealer) startWithSemaphore() {
 		d.wg.Add(1)
 		go func(j *Job) {
 			j.resultch <- j.f()
-			close(j.resultch)
 			defer func() {
 				d.wg.Done()
 				d.release()

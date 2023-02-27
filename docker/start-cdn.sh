@@ -8,4 +8,4 @@ mkdir -p /data/logs $bucketspath
 
 touch $logpath
 
-cdn -debug=false -buckets-path=$bucketspath -logs-path=$logpath -config-path=$cfgpath
+cdn -debug=false -buckets-path=$bucketspath -logs-path=$logpath -config-path=$cfgpath -strict-log=true
