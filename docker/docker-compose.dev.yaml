@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   mongo:
-    image: mongo:4.1-bionic
+    image: mongo:6
     restart: on-failure
     ports:
       - "27017:27017"
@@ -14,6 +14,7 @@ services:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=adminpwd
       - MONGO_INITDB_DATABASE=admin
+      - MONGO_DATABASE=cdn
 
   cdn:
     build:
@@ -31,11 +32,35 @@ services:
       - MONGO_URI
       - MONGO_DB_NAME
       - APP_PORT
+      - DOMAIN
       - APP_HOST
     ports:
       - "5000:5000"
     networks:
       - inet
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ${APP_SRC}/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - inet
+
+  grafana:
+    image: grafana/grafana
+    user: root
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ${APP_SRC}/grafana/provisioning:/etc/grafana/provisioning
+      - ${APP_SRC}/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - inet
+
 
 networks:
   inet:

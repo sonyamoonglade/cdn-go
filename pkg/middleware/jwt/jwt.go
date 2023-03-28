@@ -41,7 +41,7 @@ func (m *Middleware) Auth(h http.HandlerFunc) http.HandlerFunc {
 			fileUUID = vars[cdn_go.FileUUIDKey]
 		}
 
-		m.logger.Debugf("operation: %s bucket: %s", operation, bucketName)
+		m.logger.Debugf("auth: operation: %s on bucket: %s", operation, bucketName)
 
 		b, err := m.bc.Get(bucketName)
 		if err != nil {

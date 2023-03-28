@@ -3,7 +3,6 @@ package cdn
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	_ "image/jpeg"
 	_ "image/png"
 	"net/http"
@@ -89,7 +88,6 @@ func (h *Handler) Healthcheck(w http.ResponseWriter, _ *http.Request) {
 	return
 }
 func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
-
 	var inp dto.CreateBucketDto
 	if err := json.NewDecoder(r.Body).Decode(&inp); err != nil {
 		err = cdnutil.WrapInternal(err, "Handler.CreateBucket.json.Decode")
@@ -115,6 +113,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Also checks if exists locally
 	if err := fs.CreateBucket(inp.Name); err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
 		return
@@ -161,7 +160,8 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	rawQuery = h.moduleController.Raw(moduleMap, uuid)
 	sha1 := hash.SHA1Name(rawQuery)
 
-	// Try go get exiting processed file.
+	// Try go get existing processed file.
+	// TODO: think of what if file is deleted
 	if !isOriginal {
 		// Make path to file and check if already resolved file exists. (isOriginal = false)
 		pathToExisting := cdnpath.ToExistingFile(&cdnpath.Existing{
@@ -189,7 +189,6 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	f, err := h.service.GetFileDB(r.Context(), bucket, uuid)
 	if err != nil {
 		cdn_errors.ToHttp(h.logger, w, err)
-		fmt.Println(err)
 		// If meta is not found in DB - delete file from disk.
 		if errors.Is(err, entities.ErrFileNotFound) {
 			dirPath := cdnpath.ToDir(bucket, uuid)
@@ -224,6 +223,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 
 	// Magic happens here
 	// UseResolver would modify buff according to moduleMap
+	// TODO: think for resolving queue
 	buff := bytes.NewBuffer(bits)
 	err = h.moduleController.UseResolvers(buff, b.Module, moduleMap)
 	if err != nil {
@@ -236,18 +236,15 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	h.fc.Increment(pathToResolved)
 
 	buffBits := buff.Bytes()
-
 	// Important to execute asynchronously (defer), due to
 	// if it fails somehow the next call to Get with resolvers will
 	// resolve (process) the file again and try to save once more.
 	// There's no need to save synchronously. Client will get it's file bits no matter what.
-	defer h.service.MustSave(buffBits, pathToResolved)
-
 	response.Binary(w, buffBits, h.service.ParseMime(buffBits))
+	h.service.MustSave(buffBits, pathToResolved)
 }
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-
 	vars := mux.Vars(r)
 	bucket := vars[cdn_go.BucketKey]
 
@@ -279,7 +276,6 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-
 	vars := mux.Vars(r)
 
 	bucket := vars[cdn_go.BucketKey]

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+
+	"go.uber.org/zap"
 )
 
 type Controller interface {
@@ -22,16 +24,17 @@ type Controller interface {
 
 type controller struct {
 	modules map[string]*Module
+	logger  *zap.SugaredLogger
 }
 
-func NewController() Controller {
+func NewController(logger *zap.SugaredLogger) Controller {
 	c := &controller{
 		modules: make(map[string]*Module, 1),
+		logger:  logger,
 	}
 
 	imgModule := newImageModule()
 	c.registerModule(imgModule)
-
 	return c
 }
 
@@ -124,7 +127,7 @@ func (c *controller) UseResolvers(buff *bytes.Buffer, module string, mm ModuleMa
 		r := c.resolver(module, resolverName)
 		err := r(buff, resolverArg)
 		if err != nil {
-			return err
+			return module_errors.WrapInternal(err, "controller.UseResolvers.r")
 		}
 	}
 

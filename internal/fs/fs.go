@@ -71,7 +71,6 @@ func ReadFile(path string) ([]byte, error) {
 }
 
 func WriteFileToBucket(buff []byte, bucket string, uuid string, fileName string) error {
-
 	dirPath := path.Join(bucketsPath, bucket, uuid)
 	fullPath := path.Join(dirPath, fileName)
 
@@ -82,12 +81,10 @@ func WriteFileToBucket(buff []byte, bucket string, uuid string, fileName string)
 
 	// No items (folder does not exist)
 	if len(entr) == 0 {
-
 		err = createDir(dirPath)
 		if err != nil {
 			return cdnutil.ChainInternal(err, "fs.WriteFileToBucket->fs.createDir")
 		}
-
 	}
 
 	err = WriteFile(fullPath, buff)

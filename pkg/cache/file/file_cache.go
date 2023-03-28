@@ -61,16 +61,17 @@ func NewFileCache(logger *zap.SugaredLogger, cfg *Config) *fileCache {
 func (fc *fileCache) Increment(path string) {
 	var beats bool
 	isCached := fc.cache.InCache(path)
-
 	curr, ok := fc.hits[path]
 	if !ok {
 		fc.mu.Lock()
 		fc.hits[path] = 1
+		// TODO: inc metric gauge
 		fc.mu.Unlock()
 	}
 
 	if !isCached && curr < fc.hitThreshold {
 		fc.mu.Lock()
+		// TODO: inc metric gauge
 		fc.hits[path] = curr + 1
 		fc.mu.Unlock()
 		//If just incremented value is equal threshold - set beats
@@ -82,6 +83,7 @@ func (fc *fileCache) Increment(path string) {
 	// Cache file if its not cached and current file's hits has just beaten the threshold or curr is greater
 	if !isCached && (beats || curr >= fc.hitThreshold) {
 		fc.cache.Cache(path)
+		// TODO: Decrement metric gauge
 		delete(fc.hits, path)
 	}
 
@@ -136,6 +138,7 @@ func (fc *fileCache) Stop() {
 
 func (fc *fileCache) flush() {
 	fc.mu.Lock()
+	// TODO: Decrement metric gauge to 0
 	for k := range fc.hits {
 		delete(fc.hits, k)
 	}

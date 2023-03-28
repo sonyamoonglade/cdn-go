@@ -18,6 +18,7 @@ import (
 	"animakuro/cdn/pkg/dealer"
 	"animakuro/cdn/pkg/http"
 	"animakuro/cdn/pkg/logging"
+	"animakuro/cdn/pkg/metrics"
 	"animakuro/cdn/pkg/middleware"
 	"animakuro/cdn/pkg/mongodb"
 
@@ -26,7 +27,6 @@ import (
 )
 
 func main() {
-
 	log.Println("booting application...")
 
 	debug, strictLogging, logsPath, bucketsPath, configPath := parseFlags()
@@ -64,13 +64,13 @@ func main() {
 	}
 	logger.Info("mongodb has connected")
 
-	m := mux.NewRouter()
-	srv := http.NewServer(cfg.AppPort, cfg.AppHost, m)
+	router := mux.NewRouter()
+	srv := http.NewServer(cfg.AppPort, cfg.AppHost, router)
 
 	bucketCache := bucketcache.NewBucketCache()
 	fileCache := filecache.NewFileCache(logger, cfg.FileCacheConfig)
 	middlewares := middleware.NewMiddlewares(logger, bucketCache)
-	moduleController := modules.NewController()
+	moduleController := modules.NewController(logger)
 
 	// Worker pool for IO operations
 	jobDealer := dealer.New(logger, cfg.MaxWorkers)
@@ -80,7 +80,7 @@ func main() {
 	service := cdn.NewService(logger, repo, bucketCache, fileCache, cfg.Domain, jobDealer)
 	handler := cdn.NewHandler(&cdn.HandlerDeps{
 		Logger:           logger,
-		Mux:              m,
+		Mux:              router,
 		Middlewares:      middlewares,
 		Service:          service,
 		ModuleController: moduleController,
@@ -100,9 +100,10 @@ func main() {
 	}
 
 	handler.InitRoutes()
+	metrics.StartRecordingMetrics(router)
 
 	// Init worker pool and job pool
-	jobDealer.Start(debug)
+	jobDealer.Start()
 
 	// Graceful shutdown
 	shutdown := make(chan os.Signal)

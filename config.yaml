@@ -9,5 +9,5 @@ cache:
 cdn:
   upload:
     max_memory: 128 # mb
-  io_workers: 10 # max number of heavy i/o operations, happening at one time e.g. (read file)
+  io_workers: 50 # max number of heavy i/o operations, happening at one time e.g. (read file)
 

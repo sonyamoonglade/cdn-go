@@ -2,6 +2,8 @@ package modules
 
 import (
 	module_errors "animakuro/cdn/internal/modules/errors"
+	"go.uber.org/zap"
+
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,11 +16,11 @@ import (
 )
 
 func TestModuleController(t *testing.T) {
-
+	logger := zap.NewNop().Sugar()
 	t.Run("should parse ok", func(t *testing.T) {
 		t.Parallel()
 
-		controller := NewController()
+		controller := NewController(logger)
 
 		mockQuery := fmt.Sprintf("%s.webp=true&%s.resized=false", imageModuleName, imageModuleName)
 
@@ -37,7 +39,7 @@ func TestModuleController(t *testing.T) {
 	t.Run("should not parse (module does not exist)", func(t *testing.T) {
 		t.Parallel()
 
-		controller := NewController()
+		controller := NewController(logger)
 
 		mockQuery := "joe-biden.resolver=true"
 
@@ -66,7 +68,7 @@ func TestModuleController(t *testing.T) {
 	t.Run("should run concurrent operations", func(t *testing.T) {
 		t.Parallel()
 
-		c := NewController()
+		c := NewController(logger)
 
 		N := 500
 		wg := new(sync.WaitGroup)
